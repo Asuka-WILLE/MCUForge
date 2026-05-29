@@ -1,0 +1,44 @@
+# Keil generated files
+MDK-ARM/UM10550/
+Objects/
+Listings/
+*.o
+*.d
+*.dep
+*.axf
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.lnp
+*.iex
+*.crf
+*.htm
+*.build_log.htm
+
+# Unused CMSIS packages copied by CubeMX
+Drivers/CMSIS/Core/
+Drivers/CMSIS/Core_A/
+Drivers/CMSIS/docs/
+Drivers/CMSIS/DSP/
+Drivers/CMSIS/NN/
+Drivers/CMSIS/RTOS/
+Drivers/CMSIS/RTOS2/
+
+# Debug / temporary
+DebugConfig/
+*.uvguix.*
+*.uvguix
+*.scvd
+*.dbgconf
+
+# User/local settings
+*.uvoptx
+*.uvopt
+*.uvgui.*
+*.uvgui
+
+# Windows
+Thumbs.db
+desktop.ini
