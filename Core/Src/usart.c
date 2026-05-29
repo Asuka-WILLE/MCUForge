@@ -531,3 +531,4 @@ int RS485_Receive_All(uint8_t *buf, uint8_t max_len, uint32_t timeout)
 
 
 /* USER CODE END 1 */
+
