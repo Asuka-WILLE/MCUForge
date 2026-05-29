@@ -13,6 +13,19 @@ HT-10A 遥控器
   -> USART3 RS485 控制升降机构
 ```
 
+## Clone 后打开工程
+
+Clone 本仓库后，不需要额外复制工程文件，可以直接从下面两个入口打开并修改：
+
+- CubeMX：打开根目录下的 `UM10550.ioc`，修改引脚、外设或时钟配置后重新生成代码。
+- Keil MDK：打开 `MDK-ARM/UM10550.uvprojx`，即可查看、修改和编译工程代码。
+
+已纳入版本管理的关键工程内容包括 `UM10550.ioc`、`.mxproject`、`Core/`、`Drivers/`、`MDK-ARM/UM10550.uvprojx`、`MDK-ARM/startup_stm32h723xx.s` 和 `MDK-ARM/RTE/`。这些文件足够支撑别人 clone 后继续用 CubeMX 或 Keil 修改工程。
+
+本工程的 CubeMX 配置使用 `STM32Cube FW_H7 V1.12.1`，目标工具链为 `MDK-ARM V5.32`。Keil 工程引用了 `Keil.STM32H7xx_DFP.4.1.3` 和 ARM CMSIS Pack；如果别人打开时提示缺少 Pack，在 Keil Pack Installer 中安装对应 STM32H7xx DFP / CMSIS 包即可。
+
+未提交的 `MDK-ARM/UM10550/`、`Objects/`、`Listings/`、`*.uvoptx`、`*.uvguix.*`、`*.dbgconf` 等文件属于编译产物或本机 Keil 调试/界面设置，Keil 打开或编译后会自动生成，不影响继续修改工程。
+
 ## 资料来源
 
 本 README 结合了当前代码和以下本地资料：
