@@ -31,6 +31,7 @@
 #include "move_mode_control.h"
 #include "lcd.h"
 #include "SBUS.h"
+#include "usbd_cdc_if.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -43,6 +44,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define TELEMETRY_PERIOD_MS 200U
+#define TELEMETRY_LINE_MAX  160U
+
 // ===================== 辅助函数 =====================
 /**
  * @brief  摇杆死区处理
@@ -123,7 +127,63 @@ volatile LiftState current_lift_state = LIFT_STOP;
 int16_t emergency_stop=0;
 int16_t left=0;
 int16_t right=0;
+int16_t current_speed_rpm=0;
+int16_t lift_height_mm=-1;
+volatile uint8_t telemetry_failsafe=0;
+static uint32_t telemetry_last_tick=0;
 
+static const char *telemetry_state_text(void)
+{
+    if(telemetry_failsafe)
+    {
+        return "FAILSAFE";
+    }
+    if(emergency_stop)
+    {
+        return "ESTOP";
+    }
+    if(!en_flag)
+    {
+        return "DISABLED";
+    }
+    return "RUN";
+}
+
+static void telemetry_update_values(void)
+{
+    left = motor_read_speed(1);
+    right = motor_read_speed(2);
+    current_speed_rpm = (int16_t)((left - right) / 2);
+    lift_height_mm = lift_read_height();
+}
+
+static void telemetry_send(void)
+{
+    char line[TELEMETRY_LINE_MAX];
+    int len = snprintf(line, sizeof(line),
+                       "{\"left_rpm\":%d,\"right_rpm\":%d,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d}\r\n",
+                       left,
+                       right,
+                       current_speed_rpm,
+                       telemetry_state_text(),
+                       lift_height_mm);
+
+    if(len > 0 && len < (int)sizeof(line))
+    {
+        (void)CDC_Transmit_HS((uint8_t *)line, (uint16_t)len);
+    }
+}
+
+static void telemetry_process(void)
+{
+    uint32_t now = HAL_GetTick();
+    if((now - telemetry_last_tick) >= TELEMETRY_PERIOD_MS)
+    {
+        telemetry_last_tick = now;
+        telemetry_update_values();
+        telemetry_send();
+    }
+}
 
 
 /* USER CODE END 0 */
@@ -211,6 +271,7 @@ int main(void)
 				uint8_t local_buf[SBUS_FRAME_LEN];
 				memcpy(local_buf, (void*)sbus_buf, SBUS_FRAME_LEN);
 				uint8_t local_failsafe = sbus_failsafe;
+				telemetry_failsafe = local_failsafe;
 				sbus_frame_ok = 0;
 				__enable_irq();
 
@@ -237,53 +298,61 @@ int main(void)
 						// 最高优先级：急停/失能
 						if(ch[5] > 1500)
 						{
-								motor_emergency_stop();
-								lift_stop();
-								current_lift_state = LIFT_STOP; // 强制同步软件标志与硬件状态
-								continue;
-						}
-						// 使能
-						else if(ch[5] < 500)  
-						{								
-								motor_clear_emergency_stop();
-						}
-
-						// ===================== 第二步：电机驱动 =====================
-						int16_t desired_speed, desired_steer;
-						int16_t desired_left_rpm, desired_right_rpm;
-					//	int16_t allowed_left_rpm, allowed_right_rpm;
-
-						// 正确顺序
-						desired_speed =  (ch[2] - 992) / 32;  // 前后油门 CH3
-						desired_steer = (ch[3] - 988)/ 32;  // 左右转向	CH4
-						
-						desired_left_rpm  = desired_speed + desired_steer / 4;
-						desired_right_rpm = desired_speed - desired_steer / 4;
-						
-						speed_set(desired_left_rpm,-desired_right_rpm);
-						
-						// ===================== 第三步：升降控制 =====================
-						LiftState desired_lift_state;  // 用户想要的状态
-				//		LiftState allowed_lift_state;  // 系统允许的状态
-
-						// 3.1 先计算用户想要的状态（只看摇杆）
-						if(ch[7] < 500)
-								desired_lift_state = LIFT_UP;
-						else if(ch[7] > 1500)
-								desired_lift_state = LIFT_DOWN;
-						else
-								desired_lift_state = LIFT_STOP;
-
-						// 3.3 只有系统允许的状态发生变化时才发送指令
-						if(desired_lift_state != current_lift_state)
-						{
-								switch(desired_lift_state)
+								if(!emergency_stop)
 								{
-										case LIFT_UP:    lift_up();    break;
-										case LIFT_DOWN:  lift_down();  break;
-										case LIFT_STOP:  lift_stop();  break;
+										motor_emergency_stop();
 								}
-								current_lift_state = desired_lift_state;
+								if(current_lift_state != LIFT_STOP)
+								{
+										lift_stop();
+										current_lift_state = LIFT_STOP; // 强制同步软件标志与硬件状态
+								}
+						}
+						else
+						{
+								// 使能
+								if(ch[5] < 500 && (emergency_stop || !en_flag))
+								{
+										motor_clear_emergency_stop();
+								}
+
+								// ===================== 第二步：电机驱动 =====================
+								int16_t desired_speed, desired_steer;
+								int16_t desired_left_rpm, desired_right_rpm;
+							//	int16_t allowed_left_rpm, allowed_right_rpm;
+
+								// 正确顺序
+								desired_speed =  (ch[2] - 992) / 32;  // 前后油门 CH3
+								desired_steer = (ch[3] - 988)/ 32;  // 左右转向	CH4
+
+								desired_left_rpm  = desired_speed + desired_steer / 4;
+								desired_right_rpm = desired_speed - desired_steer / 4;
+
+								speed_set(desired_left_rpm,-desired_right_rpm);
+
+								// ===================== 第三步：升降控制 =====================
+								LiftState desired_lift_state;  // 用户想要的状态
+						//		LiftState allowed_lift_state;  // 系统允许的状态
+
+								// 3.1 先计算用户想要的状态（只看摇杆）
+								if(ch[7] < 500)
+										desired_lift_state = LIFT_UP;
+								else if(ch[7] > 1500)
+										desired_lift_state = LIFT_DOWN;
+								else
+										desired_lift_state = LIFT_STOP;
+
+								// 3.3 只有系统允许的状态发生变化时才发送指令
+								if(desired_lift_state != current_lift_state)
+								{
+										switch(desired_lift_state)
+										{
+												case LIFT_UP:    lift_up();    break;
+												case LIFT_DOWN:  lift_down();  break;
+												case LIFT_STOP:  lift_stop();  break;
+										}
+										current_lift_state = desired_lift_state;
+								}
 						}
 							
 
@@ -305,6 +374,8 @@ int main(void)
 		LCD_ShowIntNum(115,130,right,4,RED,WHITE,24);
 		LCD_ShowIntNum(115,80,left,4,RED,WHITE,24); 
 */		
+		telemetry_failsafe = sbus_failsafe;
+		telemetry_process();
 														
     /* USER CODE END WHILE */
 

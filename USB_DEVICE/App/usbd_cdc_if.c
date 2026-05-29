@@ -22,6 +22,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
+#include <string.h>
 
 /* USER CODE END INCLUDE */
 
@@ -282,10 +283,14 @@ uint8_t CDC_Transmit_HS(uint8_t* Buf, uint16_t Len)
   uint8_t result = USBD_OK;
   /* USER CODE BEGIN 12 */
   USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceHS.pClassData;
+  if (Len > APP_TX_DATA_SIZE){
+    return USBD_FAIL;
+  }
   if (hcdc->TxState != 0){
     return USBD_BUSY;
   }
-  USBD_CDC_SetTxBuffer(&hUsbDeviceHS, Buf, Len);
+  memcpy(UserTxBufferHS, Buf, Len);
+  USBD_CDC_SetTxBuffer(&hUsbDeviceHS, UserTxBufferHS, Len);
   result = USBD_CDC_TransmitPacket(&hUsbDeviceHS);
   /* USER CODE END 12 */
   return result;

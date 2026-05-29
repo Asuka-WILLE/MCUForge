@@ -7,9 +7,30 @@ extern uint16_t test1;
 extern uint16_t test2;
 extern uint8_t uart2_rx_buf[7];  // ½ÓÊÕ»º´æ
 extern uint8_t uart2_rx_done;
-extern uint16_t motor_real_speed;
+extern int16_t motor_real_speed;
 extern int16_t emergency_stop;
 extern int16_t en_flag;
+
+#define MODBUS_RESPONSE_LEN        7U
+#define MOTOR_READ_TIMEOUT_MS      50U
+#define LIFT_READ_TIMEOUT_MS       80U
+
+static int16_t modbus_parse_i16_response(uint8_t *buf, uint8_t slave_addr)
+{
+    if(buf[0] != slave_addr || buf[1] != 0x03 || buf[2] != 0x02)
+    {
+        return 0;
+    }
+
+    uint16_t calc_crc = Modbus_CRC16(buf, 5);
+    uint16_t recv_crc = ((uint16_t)buf[6] << 8) | buf[5];
+    if(calc_crc != recv_crc)
+    {
+        return 0;
+    }
+
+    return (int16_t)(((uint16_t)buf[3] << 8) | buf[4]);
+}
 
 // ===================== MODBUS CRC16 =====================
 uint16_t Modbus_CRC16(uint8_t *data, uint16_t len)
@@ -85,30 +106,61 @@ void speed_set(int16_t left_rpm, int16_t right_rpm)
     r_cmd[6] = crc_r & 0xFF;
     r_cmd[7] = (crc_r >> 8) & 0xFF;
     RS485_SendPacket(r_cmd,8);
-		HAL_Delay(10);  //æ ¹æœ¬ä¸éœ€è¦ç­‰å¾…ï¼Œå› ä¸ºä¸éœ€è¦ç­‰å¾…æ•°æ®è¿”å›ž
+		HAL_Delay(10);  // no response wait needed
 }
 
 // ===================== ¶ÁÈ¡µç»úËÙ¶È£¨Õ¾ºÅ1£©=====================
 int16_t motor_read_speed(uint8_t slave_addr)
 {
+    uint8_t buf[MODBUS_RESPONSE_LEN] = {0};
     uint8_t cmd[8] = {slave_addr, 0x03, 0x50, 0x00, 0x00, 0x01, 0x00, 0x00};
     uint16_t crc = Modbus_CRC16(cmd, 6);
     cmd[6] = crc & 0xFF;
     cmd[7] = crc >> 8;
 
-    
     uart2_rx_done = 0;
-   // motor_real_speed = 0;
-    memset(uart2_rx_buf, 0, 7);  
-
-    // ·¢ËÍ
+    memset(uart2_rx_buf, 0, sizeof(uart2_rx_buf));
+    __HAL_UART_FLUSH_DRREGISTER(&huart2);
     RS485_SendPacket(cmd, 8);
 
-    // µÈ´ýÐÂµÄ¡¢ÕýÈ·µÄÖ¡
-    uint32_t start = HAL_GetTick();
-    while(uart2_rx_done == 0 && (HAL_GetTick() - start < 100));
+    if(RS485_ReceivePacket(buf, MODBUS_RESPONSE_LEN, MOTOR_READ_TIMEOUT_MS) != HAL_OK)
+    {
+        return 0;
+    }
 
+    motor_real_speed = modbus_parse_i16_response(buf, slave_addr);
     return motor_real_speed;
+}
+
+int16_t lift_read_height(void)
+{
+    uint8_t buf[MODBUS_RESPONSE_LEN] = {0};
+    uint8_t cmd[8] = {0x01, 0x03, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00};
+    uint16_t crc = Modbus_CRC16(cmd, 6);
+    cmd[6] = crc & 0xFF;
+    cmd[7] = crc >> 8;
+
+    __HAL_UART_FLUSH_DRREGISTER(&huart3);
+    RS485_SendPacket2(cmd, 8);
+
+    if(RS485_ReceivePacket2(buf, MODBUS_RESPONSE_LEN, LIFT_READ_TIMEOUT_MS) != HAL_OK)
+    {
+        return -1;
+    }
+
+    if(buf[0] != 0x01 || buf[1] != 0x03 || buf[2] != 0x02)
+    {
+        return -1;
+    }
+
+    uint16_t calc_crc = Modbus_CRC16(buf, 5);
+    uint16_t recv_crc = ((uint16_t)buf[6] << 8) | buf[5];
+    if(calc_crc != recv_crc)
+    {
+        return -1;
+    }
+
+    return (int16_t)(((uint16_t)buf[3] << 8) | buf[4]);
 }
 
 /*
@@ -239,6 +291,5 @@ void lift_reset(void)
     uint8_t cmd[8] = {0x01,0x06,0x00,0x01,0x00,0x08,0xD9,0xCC};
     RS485_SendPacket2(cmd, 8);
 }
-
 
 

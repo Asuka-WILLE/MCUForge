@@ -22,6 +22,7 @@ void    motor_start_init(void);
 void change_station(void);
 void    speed_set(int16_t left, int16_t right);
 int16_t motor_read_speed(uint8_t motor);
+int16_t lift_read_height(void);
 void    motor_stop(void);
 void 		motor_enable(void);
 void    motor_emergency_stop(void);

@@ -11,6 +11,8 @@ HT-10A 遥控器
   -> 解析 CH3 / CH4 / CH6 / CH8
   -> USART2 RS485 控制左右轮毂电机
   -> USART3 RS485 控制升降机构
+  -> USB CDC 虚拟串口向电脑发送实时遥测数据
+  -> Python/Tkinter 上位机实时显示数值和速度曲线
 ```
 
 ## Clone 后打开工程
@@ -22,7 +24,7 @@ Clone 本仓库后，不需要额外复制工程文件，可以直接从下面�
 
 已纳入版本管理的关键工程内容包括 `UM10550.ioc`、`.mxproject`、`Core/`、`Drivers/`、`MDK-ARM/UM10550.uvprojx`、`MDK-ARM/startup_stm32h723xx.s` 和 `MDK-ARM/RTE/`。这些文件足够支撑别人 clone 后继续用 CubeMX 或 Keil 修改工程。
 
-本工程的 CubeMX 配置使用 `STM32Cube FW_H7 V1.12.1`，目标工具链为 `MDK-ARM V5.32`。Keil 工程引用了 `Keil.STM32H7xx_DFP.4.1.3` 和 ARM CMSIS Pack；如果别人打开时提示缺少 Pack，在 Keil Pack Installer 中安装对应 STM32H7xx DFP / CMSIS 包即可。
+本工程的 CubeMX 配置使用 `STM32Cube FW_H7 V1.13.0`，目标工具链为 `MDK-ARM V5.32` 工程格式；本地验证使用 Keil MDK `V5.40` 与 Arm Compiler `6.22`。Keil 工程引用了 `Keil.STM32H7xx_DFP.4.1.3` 和 ARM CMSIS Pack；如果别人打开时提示缺少 Pack，在 Keil Pack Installer 中安装对应 STM32H7xx DFP / CMSIS 包即可。
 
 未提交的 `MDK-ARM/UM10550/`、`Objects/`、`Listings/`、`*.uvoptx`、`*.uvguix.*`、`*.dbgconf` 等文件属于编译产物或本机 Keil 调试/界面设置，Keil 打开或编译后会自动生成，不影响继续修改工程。
 
@@ -52,8 +54,9 @@ Clone 本仓库后，不需要额外复制工程文件，可以直接从下面�
    - `CH8 > 1500`：下降。
    - 其他范围：停止。
 8. 升降机构状态有软件记忆，只有目标状态变化时才重新发送升降指令，避免持续刷指令。
-9. 具备读取轮毂电机反馈转速的函数，LCD 显示代码也已经写好，但主循环中目前被注释。
-10. 启动阶段会连续发送 8 次 `lift_up()`，用于上电后的升降机构初始动作。
+9. 通过 USB CDC 虚拟串口周期上报左轮反馈转速、右轮反馈转速、当前移动速度、运行状态和升降高度。
+10. 电脑端提供 `PC_Tools/telemetry_monitor.py` 实时监控程序，左侧显示关键数据，右侧显示左轮、右轮和总速度曲线。
+11. 启动阶段会连续发送 8 次 `lift_up()`，用于上电后的升降机构初始动作。
 
 ## 硬件与串口分配
 
@@ -62,6 +65,7 @@ Clone 本仓库后，不需要额外复制工程文件，可以直接从下面�
 | SBUS 接收机 | UART5 | 100000 bps，偶校验，2 停止位，9B 字长配置 | `Core/Src/usart.c` | 接收 HT-10A 遥控器 SBUS 信号 |
 | 轮毂电机 RS485 | USART2 | 115200 bps，8N1 | `Core/Src/usart.c` | 控制左右 UM 轮毂一体机 |
 | 升降机构 RS485 | USART3 | 9600 bps，8N1 | `Core/Src/usart.c` | 控制升降机构 |
+| USB 虚拟串口 | USB_OTG_HS 内部 FS PHY + USB_DEVICE CDC | 48 MHz USB 时钟，CDC ACM | `USB_DEVICE/`、`Middlewares/` | Type-C 连接电脑，发送实时遥测 |
 | 调试串口 | USART1 | 115200 bps，8N1 | `Core/Src/usart.c` | 预留调试输出 |
 | LCD | SPI1 | 主机发送 | `Core/Src/lcd.c` | 显示调试信息，当前主循环显示逻辑被注释 |
 | ADC 按键 | ADC1 + DMA | PA5 / ADC1_INP19 | `Core/Src/adc.c` | 已初始化，当前主控制逻辑未使用 |
@@ -105,6 +109,7 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | --- | --- |
 | `main()` | 完成 HAL、系统时钟、GPIO、DMA、USART、SPI、ADC、TIM、LCD、SBUS 初始化，并在主循环中根据遥控器通道控制轮毂电机和升降机构。 |
 | `SystemClock_Config()` | 配置 STM32H723 系统时钟，当前主频配置为 480 MHz。 |
+| `telemetry_process()` | 每 200 ms 读取左右轮转速、当前移动速度和升降高度，并通过 USB CDC 发送 JSON 遥测帧。 |
 | `joystick_deadzone()` | 摇杆死区处理函数，当前未在主循环中使用。 |
 | `accel_limit()` | 速度变化限幅函数，当前未在主循环中使用。 |
 
@@ -128,6 +133,7 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | `change_station()` | 修改电机站号，将站号从 `1` 改为 `2`，用于配置右轮电机站号。正常运行时不要反复调用。 |
 | `speed_set()` | 限制左右轮目标转速到 `MAX_RPM` 范围内，并分别向站号 `1`、`2` 写入速度指令。 |
 | `motor_read_speed()` | 读取指定站号电机的反馈转速，读取地址为 `0x5000`。 |
+| `lift_read_height()` | 读取升降机构当前位置，读寄存器 `0x0002`，当前按 `1 = 1 mm` 显示。 |
 | `motor_stop()` | 失能左右轮毂电机。 |
 | `motor_enable()` | 使能左右轮毂电机。 |
 | `motor_emergency_stop()` | 对左右轮写入急停指令，然后调用 `motor_stop()` 失能电机。 |
@@ -171,6 +177,10 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | `uart2_rx_buf[7]` | `Core/Src/main.c` | 轮毂电机速度反馈帧接收缓存。 |
 | `uart2_rx_done` | `Core/Src/main.c` | 轮毂电机速度反馈帧接收并校验成功标志。 |
 | `motor_real_speed` | `Core/Src/main.c` | 最近一次解析到的轮毂电机反馈速度。 |
+| `left` / `right` | `Core/Src/main.c` | 最近一次 USB 遥测读取到的左右轮反馈转速。 |
+| `current_speed_rpm` | `Core/Src/main.c` | 当前移动速度，按左右轮安装方向修正后计算为 `(left - right) / 2`，单位 rpm。 |
+| `lift_height_mm` | `Core/Src/main.c` | 升降机构高度，单位 mm；读取失败时为 `-1`。 |
+| `telemetry_failsafe` | `Core/Src/main.c` | USB 遥测使用的遥控失联状态标志。 |
 | `emergency_stop` | `Core/Src/main.c` | 软件急停状态标志。 |
 | `en_flag` | `Core/Src/main.c` | 电机使能状态标志。 |
 | `motor_read_flag` | `Core/Src/main.c` | TIM2 置位的周期读速度标志，当前未接入主循环读取逻辑。 |
@@ -204,6 +214,54 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | `lift_down()` | `0x0004` | 下降 |
 | `lift_reset()` | `0x0008` | 复位 |
 
+读取升降机构高度使用功能码 `0x03` 读寄存器 `0x0002`，命令为：
+
+```text
+01 03 00 02 00 01 25 CA
+```
+
+返回数据按 16 位有符号数解析，当前按 `1 = 1 mm` 作为高度显示。
+
+## USB 遥测协议
+
+单片机通过 USB CDC 虚拟串口每约 200 ms 发送一行 UTF-8 JSON，以 `\r\n` 结尾。示例：
+
+```json
+{"left_rpm":12,"right_rpm":-11,"speed_rpm":11,"state":"RUN","height_mm":245}
+```
+
+字段含义：
+
+| 字段 | 含义 |
+| --- | --- |
+| `left_rpm` | 左轮反馈转速，单位 rpm。 |
+| `right_rpm` | 右轮反馈转速，单位 rpm；因右轮安装方向可能与左轮相反，符号按电机实际反馈保留。 |
+| `speed_rpm` | 当前移动速度，按 `(left_rpm - right_rpm) / 2` 计算，单位 rpm。 |
+| `state` | 运行状态：`RUN`、`DISABLED`、`ESTOP`、`FAILSAFE`。 |
+| `height_mm` | 升降机构高度，单位 mm；读取失败时为 `-1`。 |
+
+## 电脑端监控程序
+
+监控程序位于：
+
+```text
+PC_Tools/telemetry_monitor.py
+```
+
+首次运行前安装依赖：
+
+```powershell
+pip install -r PC_Tools\requirements.txt
+```
+
+运行：
+
+```powershell
+python PC_Tools\telemetry_monitor.py
+```
+
+打开后选择 STM32 枚举出的 COM 口并点击“连接”。界面左侧显示左轮转速、右轮转速、当前移动速度、运行状态和升降机构高度；右侧实时绘制左轮、右轮和总速度曲线。
+
 ## 当前运行流程
 
 1. 上电后初始化 HAL、系统时钟、GPIO、DMA、串口、SPI、ADC、TIM2。
@@ -218,13 +276,14 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 10. 如果 `CH6 < 500`，执行电机使能与清急停。
 11. 根据 `CH3`、`CH4` 计算左右轮目标转速，并调用 `speed_set()`。
 12. 根据 `CH8` 控制升降机构上升、下降或停止。
+13. 主循环每约 200 ms 读取左右轮反馈转速和升降高度，通过 USB CDC 发送 JSON 遥测帧。
 
 ## 注意事项
 
 1. 当前 `motor_start_init()` 在 `main()` 中被注释。如果更换新电机，或电机参数没有保存为速度模式，需要先通过上位机或代码初始化电机参数。
 2. `SBUS_TimeoutCheck()` 已经能把超时视为 failsafe，但 `main()` 中 failsafe 分支里的 `motor_emergency_stop()`、`lift_stop()` 目前被注释。因此现在信号丢失时不会主动急停，这是后续应该优先打开的安全逻辑。
 3. `joystick_deadzone()` 和 `accel_limit()` 已经写好，但当前速度控制没有使用死区和加速度限幅。摇杆中位漂移或速度突变明显时，应把这两个函数接入主循环。
-4. `motor_read_speed()` 和 LCD 显示代码目前被注释，实际运行时不会周期显示左右轮反馈转速。
+4. `motor_read_speed()` 已接入 USB 遥测，LCD 显示代码仍保持注释，避免和电脑端监控重复。
 5. `change_station()` 会修改电机站号，不应在正常遥控运行时调用。
 6. 源码中部分中文注释存在编码显示异常，代码逻辑本身不受影响；后续整理注释时应统一文件编码，避免 CubeMX 再生成后继续乱码。
 
@@ -233,5 +292,31 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 1. 打开 SBUS 失控保护，让信号丢失时强制电机急停、升降停止。
 2. 接入摇杆死区，避免中位轻微抖动导致轮毂电机低速爬行。
 3. 接入加速度限幅，让轮毂电机速度变化更平滑。
-4. 恢复周期读取左右轮反馈速度，并在 LCD 或调试串口输出。
-5. 将启动阶段连续 `lift_up()` 改为明确的回零/复位流程，避免上电即上升带来的机械风险。
+4. 将启动阶段连续 `lift_up()` 改为明确的回零/复位流程，避免上电即上升带来的机械风险。
+5. 如果现场发现 USB 遥测周期影响遥控响应，可把左右轮速度读取和升降高度读取拆成分时采样。
+
+## 大版本改动记录
+
+### v1.0 遥控运动控制基础版
+
+- 完成 HT-10A 遥控器 SBUS 接收与通道解析。
+- 通过 `CH3`、`CH4` 计算差速目标转速，并经 USART2/RS485 控制左右 UM 一体式轮毂电机。
+- 通过 `CH6` 实现急停/使能控制，通过 `CH8` 实现升降机构上升、下降和停止。
+- 保留 LCD、ADC、USART1 调试口等基础外设初始化。
+
+### v1.1 USB CDC 配置版
+
+- 在 CubeMX 中启用 `USB_OTG_HS` 的内部 FS PHY，配置为 Device Only。
+- 启用 USB_DEVICE CDC 类，生成 `USB_DEVICE/` 和 `Middlewares/ST/STM32_USB_Device_Library/`。
+- USB 时钟使用 `HSI48 = 48 MHz`，系统主频保持 `SYSCLK = 480 MHz`、`HCLK = 240 MHz`。
+- Keil 工程加入 USB Device Core、CDC Class、PCD 和 LL USB 源文件。
+- 关闭 CubeMX 的 `Delete previously generated files when not re-generated`，避免再次误删 `Drivers/`。
+
+### v2.0 USB 实时监控版
+
+- 固件新增 USB CDC JSON 遥测，每约 200 ms 上报左右轮反馈转速、当前移动速度、运行状态和升降高度。
+- `motor_read_speed()` 改为阻塞读取并校验 Modbus RTU CRC，确保左右轮各自读数明确。
+- 新增 `lift_read_height()`，按 `01 03 00 02 00 01 25 CA` 读取升降机构高度，按 `1 = 1 mm` 显示。
+- 优化急停/使能分支，避免急停或使能指令在每帧 SBUS 中重复发送导致主循环长时间阻塞。
+- 新增 Python Tkinter + Matplotlib 上位机 `PC_Tools/telemetry_monitor.py`，支持串口选择、实时数值展示和三条速度曲线。
+- 本地 Keil 工程编译器配置调整为已安装的 Arm Compiler `6.22`，并完成 `0 Error(s)` 编译验证。

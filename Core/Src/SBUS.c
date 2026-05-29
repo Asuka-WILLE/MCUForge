@@ -11,7 +11,7 @@ uint8_t uart5_rx_byte = 0;
 extern uint8_t rx_trig;
 extern uint8_t uart2_rx_buf[7]; 
 extern uint8_t uart2_rx_done;
-extern uint16_t motor_real_speed;
+extern int16_t motor_real_speed;
 
 // 全局变量定义（必须加volatile）
 volatile uint8_t sbus_buf[SBUS_FRAME_LEN];
