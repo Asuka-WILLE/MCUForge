@@ -262,6 +262,31 @@ python PC_Tools\telemetry_monitor.py
 
 打开后选择 STM32 枚举出的 COM 口并点击“连接”。界面左侧显示左轮转速、右轮转速、当前移动速度、运行状态和升降机构高度；右侧实时绘制左轮、右轮和当前移动速度曲线。上位机显示时会对左右轮转速取绝对值，左轮/右轮单位保持 rpm；当前移动速度由左右轮绝对转速和轮半径 `0.075 m` 换算得到，单位为 m/s。
 
+如果不想从 VSCode 或命令行启动，可以直接双击打包后的程序：
+
+```text
+PC_Tools/dist/telemetry_monitor.exe
+```
+
+当前 exe 使用 PyInstaller 单文件模式生成，首次启动会先解包运行环境，因此会比直接运行 Python 脚本慢几秒。需要重新打包时，在工程根目录运行：
+
+```powershell
+python -m pip install pyinstaller
+$icon = (Resolve-Path PC_Tools\assets\app_icon.ico).Path
+python -m PyInstaller --noconfirm --onefile --windowed --name telemetry_monitor --icon "$icon" --add-data "$icon;assets" --distpath PC_Tools\dist --workpath PC_Tools\build --specpath PC_Tools PC_Tools\telemetry_monitor.py
+```
+
+需要记录数据时，点击“连接”旁边的“记录”按钮。程序会在 `PC_Tools/data/` 下创建一次采集会话目录，目录名格式为 `YYYY-MM-DD_HH-MM-SS`，例如：
+
+```text
+PC_Tools/data/2026-05-31_18-30-01/
+  raw.jsonl
+  telemetry.csv
+  session_info.json
+```
+
+`raw.jsonl` 保存每帧原始 JSON 和上位机归一化后的字段，便于后续扩展左右轮力矩等新字段；`telemetry.csv` 适合直接用 Excel、Origin、MATLAB 或 Python pandas 分析。当前 CSV 字段为 `pc_time,time_s,left_rpm,right_rpm,speed_mps,state,height_mm,left_torque,right_torque`。如果单片机帧中缺少某个字段，或字段为 `null` / 空值 / 无法解析，JSONL 中记录为 `null`，CSV 中保留空单元格；如果单片机实际发送数值 `0`，上位机会按真实数据记录为 `0`。
+
 ## 当前运行流程
 
 1. 上电后初始化 HAL、系统时钟、GPIO、DMA、串口、SPI、ADC、TIM2。
@@ -340,3 +365,11 @@ python PC_Tools\telemetry_monitor.py
 - USB 遥测读取改为分时轮询：左轮、右轮、升降高度分 3 个周期读取，避免单次遥测最坏连续阻塞约 180 ms。
 - `motor_start_init()` 中原有 CRC 错误的硬编码初始化帧已保留为注释，并标明错误原因；实际发送改为动态计算 Modbus CRC。
 - `motor_scan_address()` 的 2 寄存器读取响应长度从 7 字节修正为 9 字节，并增加注释说明原因。
+
+### v2.4 上位机数据记录版
+
+- 上位机新增“记录”按钮，支持按需开始/停止采集日志。
+- 记录目录从 `logs` 方案改为 `PC_Tools/data/YYYY-MM-DD_HH-MM-SS/`，每次记录单独建目录。
+- 每次记录保存 `raw.jsonl`、`telemetry.csv` 和 `session_info.json` 三个文件，便于后续做转速、速度、力矩等数据分析。
+- 缺失字段不再被默认写成 `0`：JSONL 使用 `null`，CSV 使用空单元格；单片机真实发送的 `0` 仍按 `0` 记录。
+- `PC_Tools/data/` 已加入 `.gitignore`，采集数据留在本地，不进入代码仓库。

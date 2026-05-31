@@ -2,28 +2,34 @@
 轮式机器人上位机监控程序。
 
 快速定位（行号对应当前文件版本；后续大量插入代码后需要重新核对）：
-- 串口与数据窗口：第 47 行，MAX_POINTS / BAUDRATE。
-- 速度计算常量：第 51 行，WHEEL_RADIUS_M / RPM_TO_MPS。
-- 图表坐标轴上限：第 55 行，MAX_RPM_DISPLAY / MAX_SPEED_MPS_DISPLAY。
-- 图表外边距和 DPI：第 58 行，CHART_PADDING / CHART_DPI。
-- 图表坐标轴边距：第 62 行，CHART_SUBPLOT。
-- 图表文字和线宽：第 69 行，CHART_*_SIZE / CHART_*_WIDTH。
-- 字体大小：第 80 行，APP_TITLE_FONT / CARD_*_FONT / BUTTON_FONT。
-- 颜色主题：第 88 行，APP_BG / PANEL_BG / CARD_BG / LINE_COLORS。
-- 分辨率和 DPI：第 184 行 _configure_dpi_scaling，第 192 行 _configure_window_size。
-- 图表尺寸和坐标轴边距：第 287 行 Figure / subplots_adjust，第 377 行 _resize_chart。
-- 状态文字显示：第 141 行，STATE_TEXT。
+- 串口与数据窗口：第 52 行，MAX_POINTS / BAUDRATE。
+- 速度计算常量：第 56 行，WHEEL_RADIUS_M / RPM_TO_MPS。
+- 图表坐标轴上限：第 60 行，MAX_RPM_DISPLAY / MAX_SPEED_MPS_DISPLAY。
+- 图表外边距和 DPI：第 63 行，CHART_PADDING / CHART_DPI。
+- 图表坐标轴边距：第 67 行，CHART_SUBPLOT。
+- 图表文字和线宽：第 74 行，CHART_*_SIZE / CHART_*_WIDTH。
+- 字体大小：第 85 行，APP_TITLE_FONT / CARD_*_FONT / BUTTON_FONT。
+- 颜色主题：第 93 行，APP_BG / PANEL_BG / CARD_BG / LINE_COLORS。
+- 数据记录参数：第 119 行，DATA_DIR / CSV_FIELDS。
+- 程序窗口图标：第 118 行，APP_ICON_PATH。
+- 分辨率和 DPI：第 225 行 _configure_dpi_scaling，第 233 行 _configure_window_size。
+- 图表尺寸和坐标轴边距：第 343 行 Figure / subplots_adjust，第 433 行 _resize_chart。
+- 状态文字显示：第 168 行，STATE_TEXT。
 """
 
+import csv
 import ctypes
 import json
 import math
 import os
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
 from collections import deque
+from datetime import datetime
+from pathlib import Path
 from tkinter import messagebox, ttk
 
 try:
@@ -106,6 +112,28 @@ LINE_COLORS = {
 }
 
 
+# ===== 数据记录参数 =====
+# 记录文件固定放在当前程序/可执行文件同级 data 目录下；实际数据目录已在 .gitignore 中忽略。
+PROGRAM_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+BUNDLED_DIR = Path(getattr(sys, "_MEIPASS", PROGRAM_DIR))
+APP_ICON_PATH = BUNDLED_DIR / "assets" / "app_icon.ico"
+DATA_DIR = PROGRAM_DIR / "data"
+RAW_LOG_FILENAME = "raw.jsonl"
+CSV_LOG_FILENAME = "telemetry.csv"
+SESSION_INFO_FILENAME = "session_info.json"
+CSV_FIELDS = [
+    "pc_time",
+    "time_s",
+    "left_rpm",
+    "right_rpm",
+    "speed_mps",
+    "state",
+    "height_mm",
+    "left_torque",
+    "right_torque",
+]
+
+
 def get_chinese_font():
     # Matplotlib 不一定会自动使用中文字体；这里按 Windows 常见字体顺序兜底。
     candidates = [
@@ -151,6 +179,7 @@ class TelemetryMonitor(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("轮式机器人运行状态监控")
+        self._set_window_icon()
         self.configure(bg=APP_BG)
         self._configure_dpi_scaling()
         self._configure_window_size()
@@ -159,9 +188,13 @@ class TelemetryMonitor(tk.Tk):
         self.reader_thread = None
         self.reader_running = False
         self.data_queue = queue.Queue()
+        self.log_queue = queue.Queue()
         self.start_time = time.monotonic()
         self.chart_font = CJK_FONT
         self._last_chart_size = None
+        self.is_recording = False
+        self.log_thread = None
+        self.current_session_dir = None
 
         self.x_data = deque(maxlen=MAX_POINTS)
         self.left_data = deque(maxlen=MAX_POINTS)
@@ -180,6 +213,15 @@ class TelemetryMonitor(tk.Tk):
         self.refresh_ports()
         self.after(100, self._poll_data_queue)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def _set_window_icon(self):
+        if not APP_ICON_PATH.exists():
+            return
+
+        try:
+            self.iconbitmap(str(APP_ICON_PATH))
+        except tk.TclError:
+            pass
 
     def _configure_dpi_scaling(self):
         # 分辨率调整：限制 Tk 缩放上限，避免高 DPI 屏幕把控件撑到窗口外。
@@ -262,6 +304,21 @@ class TelemetryMonitor(tk.Tk):
             pady=8,
         )
         self.connect_button.pack(side=tk.LEFT)
+
+        self.record_button = tk.Button(
+            controls,
+            text="记录",
+            command=self.toggle_recording,
+            bg="#334155",
+            fg=TEXT_PRIMARY,
+            activebackground="#475569",
+            activeforeground=TEXT_PRIMARY,
+            font=BUTTON_FONT,
+            relief=tk.FLAT,
+            padx=18,
+            pady=8,
+        )
+        self.record_button.pack(side=tk.LEFT, padx=(8, 0))
 
         body = tk.Frame(self, bg=APP_BG)
         body.pack(fill=tk.BOTH, expand=True, padx=18, pady=(0, 18))
@@ -428,6 +485,94 @@ class TelemetryMonitor(tk.Tk):
         else:
             self.connect()
 
+    def toggle_recording(self):
+        if self.is_recording:
+            self.stop_recording()
+        else:
+            self.start_recording()
+
+    def start_recording(self):
+        if self.is_recording:
+            return
+
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            session_dir = self._make_session_dir()
+            session_dir.mkdir()
+            self._write_session_info(session_dir)
+        except OSError as exc:
+            messagebox.showerror("记录失败", str(exc))
+            return
+
+        self.log_queue = queue.Queue()
+        self.current_session_dir = session_dir
+        self.is_recording = True
+        self.log_thread = threading.Thread(target=self._log_writer_loop, args=(session_dir, self.log_queue), daemon=True)
+        self.log_thread.start()
+        self.record_button.configure(text="停止", bg="#b45309", activebackground="#d97706")
+
+    def stop_recording(self):
+        if not self.is_recording:
+            return
+
+        self.is_recording = False
+        self.log_queue.put(None)
+        if self.log_thread and self.log_thread.is_alive() and threading.current_thread() is not self.log_thread:
+            self.log_thread.join(timeout=1.0)
+
+        self.log_thread = None
+        self.record_button.configure(text="记录", bg="#334155", activebackground="#475569")
+
+    def _make_session_dir(self):
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        session_dir = DATA_DIR / timestamp
+        index = 1
+        while session_dir.exists():
+            session_dir = DATA_DIR / f"{timestamp}_{index:02d}"
+            index += 1
+        return session_dir
+
+    def _write_session_info(self, session_dir):
+        info = {
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "port": self.port_combo.get().strip() or None,
+            "baudrate": BAUDRATE,
+            "wheel_radius_m": WHEEL_RADIUS_M,
+            "raw_log": RAW_LOG_FILENAME,
+            "csv_log": CSV_LOG_FILENAME,
+            "csv_fields": CSV_FIELDS,
+            "missing_value_policy": "JSONL 使用 null；CSV 使用空单元格。单片机实际发送 0 时仍记录为 0。",
+        }
+        with (session_dir / SESSION_INFO_FILENAME).open("w", encoding="utf-8") as info_file:
+            json.dump(info, info_file, ensure_ascii=False, indent=2)
+
+    def _log_writer_loop(self, session_dir, log_queue):
+        raw_path = session_dir / RAW_LOG_FILENAME
+        csv_path = session_dir / CSV_LOG_FILENAME
+
+        try:
+            with raw_path.open("a", encoding="utf-8", newline="") as raw_file, csv_path.open(
+                "a", encoding="utf-8-sig", newline=""
+            ) as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=CSV_FIELDS)
+                writer.writeheader()
+
+                while True:
+                    record = log_queue.get()
+                    if record is None:
+                        break
+
+                    raw_file.write(json.dumps(record["raw"], ensure_ascii=False) + "\n")
+                    writer.writerow({field: self._csv_value(record["csv"].get(field)) for field in CSV_FIELDS})
+                    raw_file.flush()
+                    csv_file.flush()
+        except OSError as exc:
+            self.data_queue.put(("log_error", str(exc)))
+
+    @staticmethod
+    def _csv_value(value):
+        return "" if value is None else value
+
     def connect(self):
         port = self.port_combo.get().strip()
         if not port:
@@ -491,6 +636,9 @@ class TelemetryMonitor(tk.Tk):
                 if kind == "error":
                     messagebox.showerror("串口错误", payload)
                     self.disconnect()
+                elif kind == "log_error":
+                    messagebox.showerror("记录错误", payload)
+                    self.stop_recording()
                 elif kind == "data":
                     self._update_from_data(payload)
         except queue.Empty:
@@ -498,24 +646,78 @@ class TelemetryMonitor(tk.Tk):
 
         self.after(100, self._poll_data_queue)
 
-    def _update_from_data(self, data):
-        left = abs(int(data.get("left_rpm", 0)))
-        right = abs(int(data.get("right_rpm", 0)))
-        speed = ((left + right) / 2) * RPM_TO_MPS
-        height = int(data.get("height_mm", -1))
-        state = str(data.get("state", "UNKNOWN"))
+    @staticmethod
+    def _optional_float(data, key):
+        if key not in data:
+            return None
 
-        self.value_vars["left"].set(f"{left} rpm")
-        self.value_vars["right"].set(f"{right} rpm")
-        self.value_vars["speed"].set(f"{speed:.3f} m/s")
-        self.value_vars["state"].set(STATE_TEXT.get(state, state))
-        self.value_vars["height"].set("-- mm" if height < 0 else f"{height} mm")
+        value = data.get(key)
+        if value is None or value == "":
+            return None
+
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+
+        return None if math.isnan(number) else number
+
+    @staticmethod
+    def _optional_int(data, key):
+        number = TelemetryMonitor._optional_float(data, key)
+        return None if number is None else int(number)
+
+    @staticmethod
+    def _optional_abs_int(data, key):
+        number = TelemetryMonitor._optional_float(data, key)
+        return None if number is None else abs(int(number))
+
+    def _queue_log_record(self, raw_data, normalized_data):
+        if not self.is_recording:
+            return
+
+        raw_record = {
+            "pc_time": normalized_data["pc_time"],
+            "time_s": normalized_data["time_s"],
+            "payload": raw_data,
+            "normalized": normalized_data,
+        }
+        self.log_queue.put({"raw": raw_record, "csv": normalized_data})
+
+    def _update_from_data(self, data):
+        left = self._optional_abs_int(data, "left_rpm")
+        right = self._optional_abs_int(data, "right_rpm")
+        speed = None if left is None or right is None else ((left + right) / 2) * RPM_TO_MPS
+        height = self._optional_int(data, "height_mm")
+        if height is not None and height < 0:
+            height = None
+        state = str(data["state"]) if data.get("state") not in (None, "") else None
+
+        self.value_vars["left"].set("-- rpm" if left is None else f"{left} rpm")
+        self.value_vars["right"].set("-- rpm" if right is None else f"{right} rpm")
+        self.value_vars["speed"].set("-- m/s" if speed is None else f"{speed:.3f} m/s")
+        self.value_vars["state"].set("未知" if state is None else STATE_TEXT.get(state, state))
+        self.value_vars["height"].set("-- mm" if height is None else f"{height} mm")
 
         now = time.monotonic() - self.start_time
         self.x_data.append(now)
-        self.left_data.append(left)
-        self.right_data.append(right)
-        self.speed_data.append(speed)
+        self.left_data.append(math.nan if left is None else left)
+        self.right_data.append(math.nan if right is None else right)
+        self.speed_data.append(math.nan if speed is None else speed)
+        self._queue_log_record(
+            data,
+            {
+                "pc_time": datetime.now().isoformat(timespec="milliseconds"),
+                "time_s": round(now, 3),
+                "left_rpm": left,
+                "right_rpm": right,
+                "speed_mps": None if speed is None else round(speed, 6),
+                "state": state,
+                "height_mm": height,
+                "left_torque": self._optional_float(data, "left_torque"),
+                "right_torque": self._optional_float(data, "right_torque"),
+            },
+        )
         self._redraw_chart()
 
     def _redraw_chart(self):
@@ -533,6 +735,7 @@ class TelemetryMonitor(tk.Tk):
         self.canvas.draw_idle()
 
     def on_close(self):
+        self.stop_recording()
         self.disconnect()
         self.destroy()
 

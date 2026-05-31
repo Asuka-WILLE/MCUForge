@@ -28,6 +28,12 @@ Drivers/CMSIS/RTOS2/
 
 # Debug / temporary
 DebugConfig/
+PC_Tools/data/
+PC_Tools/build/
+PC_Tools/dist/*
+!PC_Tools/dist/telemetry_monitor.exe
+PC_Tools/__pycache__/
+PC_Tools/*.spec
 *.uvguix.*
 *.uvguix
 *.scvd
