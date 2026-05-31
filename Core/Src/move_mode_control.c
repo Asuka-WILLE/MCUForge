@@ -50,24 +50,45 @@ uint16_t Modbus_CRC16(uint8_t *data, uint16_t len)
     return crc;
 }
 
+static HAL_StatusTypeDef motor_write_u16(uint8_t slave_addr, uint16_t reg, uint16_t value)
+{
+    uint8_t cmd[8] = {
+        slave_addr,
+        0x06,
+        (uint8_t)(reg >> 8),
+        (uint8_t)(reg & 0xFF),
+        (uint8_t)(value >> 8),
+        (uint8_t)(value & 0xFF),
+        0,
+        0
+    };
+    uint16_t crc = Modbus_CRC16(cmd, 6);
+    cmd[6] = crc & 0xFF;
+    cmd[7] = (crc >> 8) & 0xFF;
+    return RS485_SendPacket(cmd, 8);
+}
+
 // ===================== 电机初始化（速度模式 + 使能）=====================
 void motor_start_init(void)
 {
-		//改站号
-	//	uint8_t set_addr_01[8] = {0x01, 0x06, 0x45, 0x03, 0x00, 0x02, 0xED, 0x07};
-    uint8_t mode[8]    = {0x01,0x06,0x21,0x02,0x00,0x01,0x95,0xC2};
-    uint8_t en[8]      = {0x01,0x06,0x21,0x00,0x00,0x01,0x91,0xC0};
-    uint8_t accel[8]   = {0x01,0x06,0x23,0x20,0x01,0xF4,0x76,0x70};
-    uint8_t decel[8]   = {0x01,0x06,0x23,0x21,0x01,0xF4,0x36,0x71};
+    /*
+     * 下面旧硬编码帧保留为错误记录，不再使用。
+     * 错误原因：寄存器和值正确，但 CRC 与当前 Modbus RTU 帧不匹配；
+     * 若直接发送，驱动器会判定 CRC 校验失败而忽略命令。
+     */
+    // uint8_t mode[8]  = {0x01,0x06,0x21,0x02,0x00,0x01,0x95,0xC2}; // 正确 CRC 应为 E3 F6
+    // uint8_t en[8]    = {0x01,0x06,0x21,0x00,0x00,0x01,0x91,0xC0}; // 正确 CRC 应为 42 36
+    // uint8_t accel[8] = {0x01,0x06,0x23,0x20,0x01,0xF4,0x76,0x70}; // 正确 CRC 应为 83 93
+    // uint8_t decel[8] = {0x01,0x06,0x23,0x21,0x01,0xF4,0x36,0x71}; // 正确 CRC 应为 D2 53
 
-		//RS485_SendPacket(set_addr_01, 8);
+    // RS485_SendPacket(set_addr_01, 8);
     HAL_Delay(200);
-    RS485_SendPacket(mode,8);   HAL_Delay(200);
-    RS485_SendPacket(accel,8);  HAL_Delay(200);
-    RS485_SendPacket(decel,8);  HAL_Delay(200);
-    
+    motor_write_u16(0x01, 0x2102, 0x0001); HAL_Delay(200);
+    motor_write_u16(0x01, 0x2320, 0x01F4); HAL_Delay(200);
+    motor_write_u16(0x01, 0x2321, 0x01F4); HAL_Delay(200);
+
     HAL_Delay(200);        // 多加一段延时，让电机准备好
-    RS485_SendPacket(en,8);
+    motor_write_u16(0x01, 0x2100, 0x0001);
     HAL_Delay(300);        // 使能后多等一会，确保电机就绪
 }
 
@@ -253,8 +274,9 @@ uint8_t motor_scan_address(void)
         RS485_SendPacket(cmd,8);
         HAL_Delay(30);
 
-        uint8_t buf[7] = {0};
-        if(RS485_ReceivePacket(buf,7, 300) == HAL_OK)
+        uint8_t buf[9] = {0};
+        /* 读取 2 个寄存器时正常响应为：地址 + 功能码 + 字节数4 + 数据4 + CRC2，共 9 字节。 */
+        if(RS485_ReceivePacket(buf,9, 300) == HAL_OK)
         {
             return addr;
         }

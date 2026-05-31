@@ -131,6 +131,7 @@ int16_t current_speed_rpm=0;
 int16_t lift_height_mm=-1;
 volatile uint8_t telemetry_failsafe=0;
 static uint32_t telemetry_last_tick=0;
+static uint8_t telemetry_read_step=0;
 
 static const char *telemetry_state_text(void)
 {
@@ -151,10 +152,26 @@ static const char *telemetry_state_text(void)
 
 static void telemetry_update_values(void)
 {
-    left = motor_read_speed(1);
-    right = motor_read_speed(2);
+    switch(telemetry_read_step)
+    {
+        case 0:
+            left = motor_read_speed(1);
+            break;
+        case 1:
+            right = motor_read_speed(2);
+            break;
+        default:
+            lift_height_mm = lift_read_height();
+            break;
+    }
+
+    telemetry_read_step++;
+    if(telemetry_read_step >= 3)
+    {
+        telemetry_read_step = 0;
+    }
+
     current_speed_rpm = (int16_t)((left - right) / 2);
-    lift_height_mm = lift_read_height();
 }
 
 static void telemetry_send(void)

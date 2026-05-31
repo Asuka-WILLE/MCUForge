@@ -236,7 +236,7 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | --- | --- |
 | `left_rpm` | 左轮反馈转速，单位 rpm。 |
 | `right_rpm` | 右轮反馈转速，单位 rpm；因右轮安装方向可能与左轮相反，符号按电机实际反馈保留。 |
-| `speed_rpm` | 当前移动速度，按 `(left_rpm - right_rpm) / 2` 计算，单位 rpm。 |
+| `speed_rpm` | 固件保留的等效平均轮速，单位 rpm；当前上位机不再用该字段计算显示速度。 |
 | `state` | 运行状态：`RUN`、`DISABLED`、`ESTOP`、`FAILSAFE`。 |
 | `height_mm` | 升降机构高度，单位 mm；读取失败时为 `-1`。 |
 
@@ -260,7 +260,7 @@ pip install -r PC_Tools\requirements.txt
 python PC_Tools\telemetry_monitor.py
 ```
 
-打开后选择 STM32 枚举出的 COM 口并点击“连接”。界面左侧显示左轮转速、右轮转速、当前移动速度、运行状态和升降机构高度；右侧实时绘制左轮、右轮和总速度曲线。
+打开后选择 STM32 枚举出的 COM 口并点击“连接”。界面左侧显示左轮转速、右轮转速、当前移动速度、运行状态和升降机构高度；右侧实时绘制左轮、右轮和当前移动速度曲线。上位机显示时会对左右轮转速取绝对值，左轮/右轮单位保持 rpm；当前移动速度由左右轮绝对转速和轮半径 `0.075 m` 换算得到，单位为 m/s。
 
 ## 当前运行流程
 
@@ -320,3 +320,23 @@ python PC_Tools\telemetry_monitor.py
 - 优化急停/使能分支，避免急停或使能指令在每帧 SBUS 中重复发送导致主循环长时间阻塞。
 - 新增 Python Tkinter + Matplotlib 上位机 `PC_Tools/telemetry_monitor.py`，支持串口选择、实时数值展示和三条速度曲线。
 - 本地 Keil 工程编译器配置调整为已安装的 Arm Compiler `6.22`，并完成 `0 Error(s)` 编译验证。
+
+### v2.1 上位机界面优化版
+
+- 修复 Matplotlib 图表中文显示为方块的问题，启动时优先加载 Windows 中文字体 `Microsoft YaHei`，并回退到 `SimHei` / `SimSun`。
+- 优化上位机监控界面配色，将图表区域改为深色面板，统一网格、坐标轴、图例和曲线颜色。
+- 左轮、右轮、总速度曲线颜色调整为更柔和的蓝色、黄色和绿色，并与左侧实时数据卡片保持一致。
+
+### v2.2 上位机速度显示修正版
+
+- 上位机不再直接显示固件发送的 `speed_rpm`，而是用 `left_rpm` 和 `right_rpm` 在电脑端重新计算当前移动速度。
+- 左轮和右轮转速显示改为 `abs(left_rpm)`、`abs(right_rpm)`，单位仍为 rpm。
+- 当前移动速度按 `((abs(left_rpm) + abs(right_rpm)) / 2) * 2π * 0.075 / 60` 换算为 m/s，并保留 3 位小数。
+- 图表改为双 Y 轴：左轴显示左右轮 rpm，右轴显示当前移动速度 m/s。
+
+### v2.3 遥测阻塞与命令 CRC 修正版
+
+- 保持遥控轮毂和升降机构主控制逻辑不变，仅优化 USB 遥测读数流程。
+- USB 遥测读取改为分时轮询：左轮、右轮、升降高度分 3 个周期读取，避免单次遥测最坏连续阻塞约 180 ms。
+- `motor_start_init()` 中原有 CRC 错误的硬编码初始化帧已保留为注释，并标明错误原因；实际发送改为动态计算 Modbus CRC。
+- `motor_scan_address()` 的 2 寄存器读取响应长度从 7 字节修正为 9 字节，并增加注释说明原因。
