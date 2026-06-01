@@ -47,10 +47,13 @@
 #define TELEMETRY_PERIOD_MS 200U
 #define TELEMETRY_LINE_MAX  160U
 #define TELEMETRY_RESPONSE_LEN 7U
-#define TELEMETRY_MOTOR_TIMEOUT_MS 10U
+#define TELEMETRY_QUERY_PERIOD_MS 60U
+#define TELEMETRY_MOTOR_TIMEOUT_MS 50U
 #define TELEMETRY_LIFT_TIMEOUT_MS  15U
 #define TELEMETRY_TX_TIMEOUT_MS    5U
 #define TELEMETRY_CONTROL_HOLDOFF_MS 5U
+#define MOTOR_COMMAND_REFRESH_MS   100U
+#define MOTOR_COMMAND_IMMEDIATE_DELTA_RPM 3
 
 // ===================== 辅助函数 =====================
 /**
@@ -142,6 +145,11 @@ static uint32_t telemetry_query_start_tick=0;
 static uint8_t telemetry_rx_buf[TELEMETRY_RESPONSE_LEN]={0};
 static uint8_t telemetry_rx_len=0;
 static uint8_t telemetry_query_slave=0;
+static uint8_t telemetry_query_step=0;
+static uint8_t motor_speed_cmd_valid=0;
+static int16_t motor_last_left_cmd=0;
+static int16_t motor_last_right_cmd=0;
+static uint32_t motor_speed_cmd_last_tick=0;
 
 typedef enum
 {
@@ -319,6 +327,15 @@ static void telemetry_finish_lift_query(uint8_t response_ready)
     }
 }
 
+static void telemetry_advance_query_step(void)
+{
+    telemetry_query_step++;
+    if(telemetry_query_step >= 3)
+    {
+        telemetry_query_step = 0;
+    }
+}
+
 static void telemetry_abort_pending_query(void)
 {
     if(telemetry_query_state == TELEMETRY_WAIT_LEFT ||
@@ -329,6 +346,22 @@ static void telemetry_abort_pending_query(void)
         telemetry_reset_rx_buffer();
         telemetry_clear_uart_rx(&huart2);
         telemetry_clear_uart_rx(&huart3);
+    }
+}
+
+static void telemetry_schedule_current_step(void)
+{
+    switch(telemetry_query_step)
+    {
+        case 0:
+            telemetry_query_state = TELEMETRY_SEND_LEFT;
+            break;
+        case 1:
+            telemetry_query_state = TELEMETRY_SEND_RIGHT;
+            break;
+        default:
+            telemetry_query_state = TELEMETRY_SEND_LIFT;
+            break;
     }
 }
 
@@ -343,6 +376,52 @@ static void telemetry_control_command_end(void)
     telemetry_control_last_tick = HAL_GetTick();
 }
 
+static void motor_speed_command_invalidate(void)
+{
+    motor_speed_cmd_valid = 0;
+}
+
+static uint8_t telemetry_query_is_waiting(void)
+{
+    return (telemetry_query_state == TELEMETRY_WAIT_LEFT ||
+            telemetry_query_state == TELEMETRY_WAIT_RIGHT ||
+            telemetry_query_state == TELEMETRY_WAIT_LIFT);
+}
+
+static void motor_speed_control_update(int16_t left_cmd, int16_t right_cmd)
+{
+    uint32_t now = HAL_GetTick();
+    uint8_t refresh_due = ((now - motor_speed_cmd_last_tick) >= MOTOR_COMMAND_REFRESH_MS);
+    uint8_t large_change = (abs(left_cmd - motor_last_left_cmd) >= MOTOR_COMMAND_IMMEDIATE_DELTA_RPM ||
+                            abs(right_cmd - motor_last_right_cmd) >= MOTOR_COMMAND_IMMEDIATE_DELTA_RPM);
+    uint8_t zero_cross = ((left_cmd == 0 && motor_last_left_cmd != 0) ||
+                          (right_cmd == 0 && motor_last_right_cmd != 0) ||
+                          (left_cmd != 0 && motor_last_left_cmd == 0) ||
+                          (right_cmd != 0 && motor_last_right_cmd == 0));
+    uint8_t urgent_command = (!motor_speed_cmd_valid || large_change || zero_cross);
+
+    /*
+     * 正常运行时不要让 100 ms 的速度保活刷新打断正在等待的右轮回包。
+     * 真实操控变化仍然优先，必要时会中止后台遥测并立即下发速度。
+     */
+    if(telemetry_query_is_waiting() && !urgent_command)
+    {
+        return;
+    }
+
+    if(urgent_command || refresh_due)
+    {
+        telemetry_control_command_begin();
+        speed_set(left_cmd, right_cmd);
+        telemetry_control_command_end();
+
+        motor_last_left_cmd = left_cmd;
+        motor_last_right_cmd = right_cmd;
+        motor_speed_cmd_last_tick = HAL_GetTick();
+        motor_speed_cmd_valid = 1;
+    }
+}
+
 static void telemetry_service_query(uint32_t now, uint8_t allow_start)
 {
     uint8_t response_ready;
@@ -351,11 +430,11 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
     switch(telemetry_query_state)
     {
         case TELEMETRY_QUERY_IDLE:
-            if((now - telemetry_last_query_tick) >= TELEMETRY_PERIOD_MS &&
+            if((now - telemetry_last_query_tick) >= TELEMETRY_QUERY_PERIOD_MS &&
                (now - telemetry_control_last_tick) >= TELEMETRY_CONTROL_HOLDOFF_MS)
             {
                 telemetry_last_query_tick = now;
-                telemetry_query_state = TELEMETRY_SEND_LEFT;
+                telemetry_schedule_current_step();
             }
             break;
 
@@ -364,7 +443,8 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
             {
                 if(!telemetry_start_motor_query(1, TELEMETRY_WAIT_LEFT))
                 {
-                    telemetry_query_state = TELEMETRY_SEND_RIGHT;
+                    telemetry_advance_query_step();
+                    telemetry_query_state = TELEMETRY_QUERY_IDLE;
                 }
             }
             break;
@@ -375,7 +455,8 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
             if(response_ready || timeout)
             {
                 telemetry_finish_motor_query(response_ready);
-                telemetry_query_state = TELEMETRY_SEND_RIGHT;
+                telemetry_advance_query_step();
+                telemetry_query_state = TELEMETRY_QUERY_IDLE;
             }
             break;
 
@@ -384,7 +465,8 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
             {
                 if(!telemetry_start_motor_query(2, TELEMETRY_WAIT_RIGHT))
                 {
-                    telemetry_query_state = TELEMETRY_SEND_LIFT;
+                    telemetry_advance_query_step();
+                    telemetry_query_state = TELEMETRY_QUERY_IDLE;
                 }
             }
             break;
@@ -395,7 +477,8 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
             if(response_ready || timeout)
             {
                 telemetry_finish_motor_query(response_ready);
-                telemetry_query_state = TELEMETRY_SEND_LIFT;
+                telemetry_advance_query_step();
+                telemetry_query_state = TELEMETRY_QUERY_IDLE;
             }
             break;
 
@@ -404,6 +487,7 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
             {
                 if(!telemetry_start_lift_query())
                 {
+                    telemetry_advance_query_step();
                     telemetry_query_state = TELEMETRY_QUERY_IDLE;
                 }
             }
@@ -415,6 +499,7 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
             if(response_ready || timeout)
             {
                 telemetry_finish_lift_query(response_ready);
+                telemetry_advance_query_step();
                 telemetry_query_state = TELEMETRY_QUERY_IDLE;
                 telemetry_reset_rx_buffer();
             }
@@ -580,6 +665,7 @@ int main(void)
 										telemetry_control_command_begin();
 										motor_emergency_stop();
 										telemetry_control_command_end();
+										motor_speed_command_invalidate();
 								}
 								if(current_lift_state != LIFT_STOP)
 								{
@@ -597,6 +683,7 @@ int main(void)
 										telemetry_control_command_begin();
 										motor_clear_emergency_stop();
 										telemetry_control_command_end();
+										motor_speed_command_invalidate();
 								}
 
 								// ===================== 第二步：电机驱动 =====================
@@ -611,9 +698,7 @@ int main(void)
 								desired_left_rpm  = desired_speed + desired_steer / 4;
 								desired_right_rpm = desired_speed - desired_steer / 4;
 
-								telemetry_control_command_begin();
-								speed_set(desired_left_rpm,-desired_right_rpm);
-								telemetry_control_command_end();
+								motor_speed_control_update(desired_left_rpm,-desired_right_rpm);
 
 								// ===================== 第三步：升降控制 =====================
 								LiftState desired_lift_state;  // 用户想要的状态
