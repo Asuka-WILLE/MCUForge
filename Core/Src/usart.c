@@ -484,6 +484,50 @@ HAL_StatusTypeDef RS485_SendPacket2(uint8_t* pData, uint16_t len)
 
     return sta_2;
 }
+
+HAL_StatusTypeDef RS485_SendPacketTimeout(uint8_t* pData, uint16_t len, uint32_t timeout)
+{
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_4, GPIO_PIN_SET);
+
+    HAL_StatusTypeDef sta = HAL_UART_Transmit(&huart2, pData, len, timeout);
+    if(sta == HAL_OK)
+    {
+        uint32_t tick_start = HAL_GetTick();
+        while(__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TC) == RESET)
+        {
+            if((HAL_GetTick() - tick_start) > timeout)
+            {
+                sta = HAL_TIMEOUT;
+                break;
+            }
+        }
+    }
+
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_4, GPIO_PIN_RESET);
+    return sta;
+}
+
+HAL_StatusTypeDef RS485_SendPacket2Timeout(uint8_t* pData, uint16_t len, uint32_t timeout)
+{
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_SET);
+
+    HAL_StatusTypeDef sta = HAL_UART_Transmit(&huart3, pData, len, timeout);
+    if(sta == HAL_OK)
+    {
+        uint32_t tick_start = HAL_GetTick();
+        while(__HAL_UART_GET_FLAG(&huart3, UART_FLAG_TC) == RESET)
+        {
+            if((HAL_GetTick() - tick_start) > timeout)
+            {
+                sta = HAL_TIMEOUT;
+                break;
+            }
+        }
+    }
+
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_RESET);
+    return sta;
+}
 // ===================== RS485 手动收发控制（PD4）=====================
 HAL_StatusTypeDef RS485_ReceivePacket(uint8_t* pData, uint16_t len, uint32_t timeout)
 {

@@ -43,6 +43,8 @@ extern UART_HandleTypeDef huart3;
 /* USER CODE BEGIN Private defines */
 HAL_StatusTypeDef RS485_SendPacket(uint8_t* pData, uint16_t len);
 HAL_StatusTypeDef RS485_SendPacket2(uint8_t* pData, uint16_t len);
+HAL_StatusTypeDef RS485_SendPacketTimeout(uint8_t* pData, uint16_t len, uint32_t timeout);
+HAL_StatusTypeDef RS485_SendPacket2Timeout(uint8_t* pData, uint16_t len, uint32_t timeout);
 HAL_StatusTypeDef RS485_ReceivePacket(uint8_t* pData, uint16_t len, uint32_t timeout);
 HAL_StatusTypeDef RS485_ReceivePacket2(uint8_t* pData, uint16_t len, uint32_t timeout);
 int RS485_Receive_All(uint8_t *buf, uint8_t max_len, uint32_t timeout);
