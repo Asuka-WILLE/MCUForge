@@ -109,16 +109,6 @@ void speed_set(int16_t left_rpm, int16_t right_rpm)
     left_rpm  = (left_rpm  > MAX_RPM) ? MAX_RPM : (left_rpm  < -MAX_RPM) ? -MAX_RPM : left_rpm;
     right_rpm = (right_rpm > MAX_RPM) ? MAX_RPM : (right_rpm < -MAX_RPM) ? -MAX_RPM : right_rpm;
 
-    // ---------------- 宸﹁疆 ----------------
-    uint8_t l_cmd[8] = {0x01, 0x06, 0x23, 0x18, 0,0, 0,0};// 0x00, 0x64, 0xCA, 0x79
-    l_cmd[4] = (left_rpm >> 8) & 0xFF;
-    l_cmd[5] = left_rpm & 0xFF;
-    uint16_t crc_l = Modbus_CRC16(l_cmd,6);
-    l_cmd[6] = crc_l & 0xFF;
-    l_cmd[7] = (crc_l >> 8) & 0xFF;
-    RS485_SendPacket(l_cmd,8);
-   HAL_Delay(50);
-
     // ----------------- 鍙宠疆 ---------------
     uint8_t r_cmd[8] = {0x02, 0x06, 0x23, 0x18, 0,0, 0,0};
     r_cmd[4] = (right_rpm >> 8) & 0xFF;
@@ -127,7 +117,19 @@ void speed_set(int16_t left_rpm, int16_t right_rpm)
     r_cmd[6] = crc_r & 0xFF;
     r_cmd[7] = (crc_r >> 8) & 0xFF;
     RS485_SendPacket(r_cmd,8);
-		HAL_Delay(10);  // no response wait needed
+		HAL_Delay(2);  // no response wait needed
+	
+	  // ---------------- 宸﹁疆 ----------------
+    uint8_t l_cmd[8] = {0x01, 0x06, 0x23, 0x18, 0,0, 0,0};// 0x00, 0x64, 0xCA, 0x79
+    l_cmd[4] = (left_rpm >> 8) & 0xFF;
+    l_cmd[5] = left_rpm & 0xFF;
+    uint16_t crc_l = Modbus_CRC16(l_cmd,6);
+    l_cmd[6] = crc_l & 0xFF;
+    l_cmd[7] = (crc_l >> 8) & 0xFF;
+    RS485_SendPacket(l_cmd,8);
+   HAL_Delay(5);
+
+    
 }
 
 // ===================== 读取电机速度（站号1）=====================
