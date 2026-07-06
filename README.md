@@ -109,7 +109,8 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | --- | --- |
 | `main()` | 完成 HAL、系统时钟、GPIO、DMA、USART、SPI、ADC、TIM、LCD、SBUS 初始化，并在主循环中根据遥控器通道控制轮毂电机和升降机构。 |
 | `SystemClock_Config()` | 配置 STM32H723 系统时钟，当前主频配置为 480 MHz。 |
-| `telemetry_process()` | 每 200 ms 读取左右轮转速、当前移动速度和升降高度，并通过 USB CDC 发送 JSON 遥测帧。 |
+| `telemetry_process()` | 每 200 ms 通过 USB CDC 发送缓存的 JSON 遥测帧，并在后台推进非阻塞 Modbus 查询状态机。 |
+| `telemetry_process_poll_only()` | 主循环开头只轮询已有遥测回包，不新发查询，避免影响随后到来的遥控控制命令。 |
 | `joystick_deadzone()` | 摇杆死区处理函数，当前未在主循环中使用。 |
 | `accel_limit()` | 速度变化限幅函数，当前未在主循环中使用。 |
 
@@ -131,7 +132,7 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | `Modbus_CRC16()` | 计算 Modbus RTU CRC16 校验值。 |
 | `motor_start_init()` | 向轮毂电机写入速度模式、加速度、减速度并使能。当前在 `main()` 中被注释，说明当前依赖电机参数已经提前设置好。 |
 | `change_station()` | 修改电机站号，将站号从 `1` 改为 `2`，用于配置右轮电机站号。正常运行时不要反复调用。 |
-| `speed_set()` | 限制左右轮目标转速到 `MAX_RPM` 范围内，并分别向站号 `1`、`2` 写入速度指令。 |
+| `speed_set()` | 限制左右轮目标转速到 `MAX_RPM` 范围内，并分别向站号 `1`、`2` 写入速度指令；当前先向右轮站号 `2` 写入速度，再经短帧间隔向左轮站号 `1` 写入速度，减少原先左轮先启动带来的左右响应差。 |
 | `motor_read_speed()` | 读取指定站号电机的反馈转速，读取地址为 `0x5000`。 |
 | `lift_read_height()` | 读取升降机构当前位置，读寄存器 `0x0002`，当前按 `1 = 1 mm` 显示。 |
 | `motor_stop()` | 失能左右轮毂电机。 |
@@ -150,6 +151,8 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | --- | --- |
 | `RS485_SendPacket()` | 使用 USART2 发送轮毂电机 Modbus 指令，发送前拉高 PD4，发送完成后拉低 PD4 回到接收模式。 |
 | `RS485_SendPacket2()` | 使用 USART3 发送升降机构 Modbus 指令，发送前拉高 PB14，发送完成后拉低 PB14 回到接收模式。 |
+| `RS485_SendPacketTimeout()` | USART2 短超时发送函数，供后台遥测查询使用，避免发送异常时长时间卡住。 |
+| `RS485_SendPacket2Timeout()` | USART3 短超时发送函数，供后台遥测查询使用，避免发送异常时长时间卡住。 |
 | `RS485_ReceivePacket()` | USART2 阻塞式接收一帧数据。 |
 | `RS485_ReceivePacket2()` | USART3 阻塞式接收一帧数据。 |
 | `RS485_Receive_All()` | USART2 通用接收函数，按超时时间尽可能接收多字节。当前主流程未使用。 |
@@ -180,6 +183,7 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | `left` / `right` | `Core/Src/main.c` | 最近一次 USB 遥测读取到的左右轮反馈转速。 |
 | `current_speed_rpm` | `Core/Src/main.c` | 当前移动速度，按左右轮安装方向修正后计算为 `(left - right) / 2`，单位 rpm。 |
 | `lift_height_mm` | `Core/Src/main.c` | 升降机构高度，单位 mm；读取失败时为 `-1`。 |
+| `telemetry_query_state` | `Core/Src/main.c` | 后台遥测查询状态机，按左轮、右轮、升降高度顺序非阻塞推进。 |
 | `telemetry_failsafe` | `Core/Src/main.c` | USB 遥测使用的遥控失联状态标志。 |
 | `emergency_stop` | `Core/Src/main.c` | 软件急停状态标志。 |
 | `en_flag` | `Core/Src/main.c` | 电机使能状态标志。 |
@@ -299,9 +303,11 @@ PC_Tools/data/2026-05-31_18-30-01/
 8. 收到完整 SBUS 帧后，关中断复制 `sbus_buf`，再开中断解析本地帧。
 9. 如果 `CH6 > 1500`，立即电机急停并停止升降。
 10. 如果 `CH6 < 500`，执行电机使能与清急停。
-11. 根据 `CH3`、`CH4` 计算左右轮目标转速，并调用 `speed_set()`。
+11. 根据 `CH3`、`CH4` 计算左右轮目标转速；转速变化达到 `3 rpm` 或跨过零点时立即调用 `speed_set()`，小幅抖动/未变化时每约 100 ms 刷新一次速度命令。
 12. 根据 `CH8` 控制升降机构上升、下降或停止。
-13. 主循环每约 200 ms 读取左右轮反馈转速和升降高度，通过 USB CDC 发送 JSON 遥测帧。
+13. 主循环开头先快速轮询已有遥测回包，不新发查询，确保随后遥控控制命令优先执行。
+14. 主循环末尾推进后台遥测状态机，每约 `60 ms` 只查询一个设备，按左轮、右轮、升降高度轮换。
+15. USB CDC 每约 200 ms 发送一次 JSON 遥测帧；若某次查询超时或 CRC 错误，继续使用上一次缓存值。
 
 ## 注意事项
 
@@ -318,7 +324,7 @@ PC_Tools/data/2026-05-31_18-30-01/
 2. 接入摇杆死区，避免中位轻微抖动导致轮毂电机低速爬行。
 3. 接入加速度限幅，让轮毂电机速度变化更平滑。
 4. 将启动阶段连续 `lift_up()` 改为明确的回零/复位流程，避免上电即上升带来的机械风险。
-5. 如果现场发现 USB 遥测周期影响遥控响应，可把左右轮速度读取和升降高度读取拆成分时采样。
+5. 如需进一步降低遥测开销，可把当前非阻塞轮询升级为 UART ReceiveToIdle DMA；但 DMA 不是必要前提，现阶段主控不会等待遥测回包。
 
 ## 大版本改动记录
 
@@ -373,3 +379,17 @@ PC_Tools/data/2026-05-31_18-30-01/
 - 每次记录保存 `raw.jsonl`、`telemetry.csv` 和 `session_info.json` 三个文件，便于后续做转速、速度、力矩等数据分析。
 - 缺失字段不再被默认写成 `0`：JSONL 使用 `null`，CSV 使用空单元格；单片机真实发送的 `0` 仍按 `0` 记录。
 - `PC_Tools/data/` 已加入 `.gitignore`，采集数据留在本地，不进入代码仓库。
+
+### v2.5 固件遥测非阻塞优化版
+
+- 固件遥测读取从阻塞式 `motor_read_speed()` / `lift_read_height()` 改为后台状态机，不再等待完整回包后才返回主循环。
+- 状态机按左轮、右轮、升降高度轮换查询；每次只读一个设备，等待响应期间主循环继续执行遥控解析和运动控制。
+- 左右轮读取超时设为 `50 ms`，升降高度读取超时设为 `15 ms`；超时或 CRC 错误时保留上一次缓存值。
+- 遥控、电机和升降写命令优先：控制命令发出前会中止正在等待的后台遥测查询，控制命令结束后再允许继续查询。
+- 修正正常运行时速度命令每帧重复发送导致遥测长期被延后的问题；速度目标大幅变化或跨零点时立即发送，小幅抖动/目标不变时按 `100 ms` 周期刷新。普通保活刷新不会打断正在等待的遥测回包，保证 RUN 状态下仍能持续读取左右轮转速。
+- USB CDC JSON 协议保持不变，上位机仍接收 `left_rpm`、`right_rpm`、`speed_rpm`、`state`、`height_mm`。
+
+### v2.6 左右轮启动时序调整版
+
+- `speed_set()` 中左右轮速度命令下发顺序调整为先右轮、后左轮，用于抵消原先左轮先收到命令导致的启动偏快现象。
+- 原左轮命令后的 `50 ms` 等待被改为短帧间隔；右轮命令后等待 `2 ms`，左轮命令后等待 `5 ms`，在保留 RS485/Modbus 帧间隔的同时减少左右轮启动时间差。
