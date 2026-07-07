@@ -33,6 +33,7 @@
 #include "SBUS.h"
 #include "usbd_cdc_if.h"
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 #include <stdlib.h>
 /* USER CODE END Includes */
@@ -54,6 +55,19 @@
 #define TELEMETRY_CONTROL_HOLDOFF_MS 5U
 #define MOTOR_COMMAND_REFRESH_MS   100U
 #define MOTOR_COMMAND_IMMEDIATE_DELTA_RPM 3
+#define RC_REQUIRED_VALID_FRAMES   3U
+#define RC_TRUST_TIMEOUT_MS        30U
+#define RC_FAILSAFE_STOP_TIMEOUT_MS 150U
+#define RC_ZERO_REFRESH_MS         50U
+#define RC_CH3_CENTER              992
+#define RC_CH4_CENTER              992
+#define RC_STICK_NEUTRAL_DEADZONE  60
+#define RC_STICK_JUMP_THRESHOLD    350
+#define RC_LCD_REFRESH_MS          250U
+#define RC_LCD_FONT_SIZE           16U
+#define RC_LCD_ROW_STEP            20U
+#define RC_LCD_LINE_CHARS          (LCD_W / (RC_LCD_FONT_SIZE / 2U))
+#define RC_LCD_ROWS                8U
 
 // ===================== 辅助函数 =====================
 /**
@@ -150,6 +164,41 @@ static uint8_t motor_speed_cmd_valid=0;
 static int16_t motor_last_left_cmd=0;
 static int16_t motor_last_right_cmd=0;
 static uint32_t motor_speed_cmd_last_tick=0;
+static uint8_t rc_ready=0;
+static uint8_t rc_valid_frame_count=0;
+static uint8_t rc_prev_channels_valid=0;
+static int16_t rc_prev_ch3=RC_CH3_CENTER;
+static int16_t rc_prev_ch4=RC_CH4_CENTER;
+static uint32_t rc_last_valid_frame_tick=0;
+static uint32_t rc_not_ready_since_tick=0;
+static uint32_t rc_last_zero_command_tick=0;
+static uint8_t rc_zero_command_sent=0;
+static uint8_t rc_lift_stop_sent=0;
+static uint8_t rc_failsafe_stop_done=0;
+
+typedef struct
+{
+    uint8_t frame_seen;
+    uint8_t accepted;
+    uint8_t failsafe;
+    uint8_t frame_lost;
+    int16_t ch3;
+    int16_t ch4;
+    int16_t ch6;
+    int16_t ch8;
+    int16_t desired_speed;
+    int16_t desired_steer;
+    int16_t desired_left_rpm;
+    int16_t desired_right_rpm;
+    LiftState desired_lift_state;
+    uint32_t last_frame_tick;
+} RcLcdDebugData;
+
+static RcLcdDebugData rc_lcd_debug={0};
+static uint32_t rc_lcd_last_refresh_tick=0;
+static char rc_lcd_line_cache[RC_LCD_ROWS][RC_LCD_LINE_CHARS + 1U];
+static uint16_t rc_lcd_color_cache[RC_LCD_ROWS];
+static uint8_t rc_lcd_cache_valid[RC_LCD_ROWS];
 
 typedef enum
 {
@@ -381,6 +430,300 @@ static void motor_speed_command_invalidate(void)
     motor_speed_cmd_valid = 0;
 }
 
+static int16_t rc_desired_speed_from_ch3(int16_t ch3)
+{
+    return (ch3 - RC_CH3_CENTER) / 32;
+}
+
+static int16_t rc_desired_steer_from_ch4(int16_t ch4)
+{
+    return (ch4 - RC_CH4_CENTER) / 32;
+}
+
+static LiftState rc_desired_lift_from_ch8(int16_t ch8)
+{
+    if(ch8 < 500)
+    {
+        return LIFT_UP;
+    }
+    if(ch8 > 1500)
+    {
+        return LIFT_DOWN;
+    }
+    return LIFT_STOP;
+}
+
+static const char *rc_lift_state_text(LiftState state)
+{
+    switch(state)
+    {
+        case LIFT_UP:
+            return "UP";
+        case LIFT_DOWN:
+            return "DOWN";
+        default:
+            return "STOP";
+    }
+}
+
+static void rc_lcd_show_line(uint8_t row, uint16_t color, const char *fmt, ...)
+{
+    char line[RC_LCD_LINE_CHARS + 1U];
+    size_t len;
+    va_list args;
+
+    if(row >= RC_LCD_ROWS)
+    {
+        return;
+    }
+
+    va_start(args, fmt);
+    vsnprintf(line, sizeof(line), fmt, args);
+    va_end(args);
+
+    len = strlen(line);
+    if(len < RC_LCD_LINE_CHARS)
+    {
+        memset(&line[len], ' ', RC_LCD_LINE_CHARS - len);
+        line[RC_LCD_LINE_CHARS] = '\0';
+    }
+    else
+    {
+        line[RC_LCD_LINE_CHARS] = '\0';
+    }
+
+    if(rc_lcd_cache_valid[row] &&
+       rc_lcd_color_cache[row] == color &&
+       strcmp(rc_lcd_line_cache[row], line) == 0)
+    {
+        return;
+    }
+
+    LCD_ShowString(0, row * RC_LCD_ROW_STEP, (uint8_t *)line, color, BLACK, RC_LCD_FONT_SIZE, 0);
+    strcpy(rc_lcd_line_cache[row], line);
+    rc_lcd_color_cache[row] = color;
+    rc_lcd_cache_valid[row] = 1;
+}
+
+static void rc_lcd_init_screen(void)
+{
+    LCD_Fill(0,0,LCD_W, LCD_H,BLACK);
+    LCD_DrawRectangle(0, 0, LCD_W - 1, LCD_H - 1, WHITE);
+    LCD_Fill(0, LCD_H - 16, LCD_W / 4, LCD_H, RED);
+    LCD_Fill(LCD_W / 4, LCD_H - 16, LCD_W / 2, LCD_H, GREEN);
+    LCD_Fill(LCD_W / 2, LCD_H - 16, (LCD_W * 3) / 4, LCD_H, BLUE);
+    LCD_Fill((LCD_W * 3) / 4, LCD_H - 16, LCD_W, LCD_H, YELLOW);
+    memset(rc_lcd_cache_valid, 0, sizeof(rc_lcd_cache_valid));
+    rc_lcd_show_line(0, CYAN, "LCD OK / RC INPUT DEBUG");
+    rc_lcd_show_line(1, WHITE, "Waiting SBUS frame...");
+}
+
+static void rc_lcd_capture_frame(const int16_t ch[SBUS_NUM_CHANNELS],
+                                 uint8_t accepted,
+                                 uint8_t failsafe,
+                                 uint8_t frame_lost,
+                                 uint32_t now)
+{
+    int16_t desired_speed = rc_desired_speed_from_ch3(ch[2]);
+    int16_t desired_steer = rc_desired_steer_from_ch4(ch[3]);
+
+    rc_lcd_debug.frame_seen = 1;
+    rc_lcd_debug.accepted = accepted;
+    rc_lcd_debug.failsafe = failsafe;
+    rc_lcd_debug.frame_lost = frame_lost;
+    rc_lcd_debug.ch3 = ch[2];
+    rc_lcd_debug.ch4 = ch[3];
+    rc_lcd_debug.ch6 = ch[5];
+    rc_lcd_debug.ch8 = ch[7];
+    rc_lcd_debug.desired_speed = desired_speed;
+    rc_lcd_debug.desired_steer = desired_steer;
+    rc_lcd_debug.desired_left_rpm = desired_speed + desired_steer / 4;
+    rc_lcd_debug.desired_right_rpm = -(desired_speed - desired_steer / 4);
+    rc_lcd_debug.desired_lift_state = rc_desired_lift_from_ch8(ch[7]);
+    rc_lcd_debug.last_frame_tick = now;
+}
+
+static void rc_lcd_process(uint32_t now)
+{
+    uint32_t age_ms;
+
+    if((now - rc_lcd_last_refresh_tick) < RC_LCD_REFRESH_MS)
+    {
+        return;
+    }
+    rc_lcd_last_refresh_tick = now;
+
+    rc_lcd_show_line(0, CYAN, "RC INPUT DEBUG");
+
+    if(!rc_lcd_debug.frame_seen)
+    {
+        rc_lcd_show_line(1, YELLOW, "Waiting SBUS frame...");
+        rc_lcd_show_line(2, WHITE, "");
+        rc_lcd_show_line(3, WHITE, "");
+        rc_lcd_show_line(4, WHITE, "");
+        rc_lcd_show_line(5, WHITE, "");
+        rc_lcd_show_line(6, WHITE, "");
+        rc_lcd_show_line(7, WHITE, "");
+        return;
+    }
+
+    age_ms = now - rc_lcd_debug.last_frame_tick;
+    rc_lcd_show_line(1, rc_ready ? GREEN : RED,
+                     "STAT:%s ACC:%s AGE:%lu",
+                     rc_ready ? "READY" : "STOP",
+                     rc_lcd_debug.accepted ? "YES" : "NO",
+                     (unsigned long)age_ms);
+    rc_lcd_show_line(2, WHITE, "FS:%u LOST:%u EN:%u EST:%d",
+                     (unsigned int)(sbus_failsafe || rc_lcd_debug.failsafe),
+                     (unsigned int)rc_lcd_debug.frame_lost,
+                     (unsigned int)en_flag,
+                     emergency_stop);
+    rc_lcd_show_line(3, WHITE, "CH3:%4d CH4:%4d",
+                     rc_lcd_debug.ch3,
+                     rc_lcd_debug.ch4);
+    rc_lcd_show_line(4, WHITE, "CH6:%4d CH8:%4d",
+                     rc_lcd_debug.ch6,
+                     rc_lcd_debug.ch8);
+    rc_lcd_show_line(5, YELLOW, "SPD:%+4d STR:%+4d",
+                     rc_lcd_debug.desired_speed,
+                     rc_lcd_debug.desired_steer);
+    rc_lcd_show_line(6, YELLOW, "LSET:%+4d RSET:%+4d",
+                     rc_lcd_debug.desired_left_rpm,
+                     rc_lcd_debug.desired_right_rpm);
+    rc_lcd_show_line(7, CYAN, "LIFT:%s",
+                     rc_lift_state_text(rc_lcd_debug.desired_lift_state));
+}
+
+static uint8_t rc_channel_in_range(int16_t value)
+{
+    return (value >= SBUS_CHANNEL_MIN && value <= SBUS_CHANNEL_MAX);
+}
+
+static uint8_t rc_control_channels_in_range(const int16_t ch[SBUS_NUM_CHANNELS])
+{
+    return (rc_channel_in_range(ch[2]) &&
+            rc_channel_in_range(ch[3]) &&
+            rc_channel_in_range(ch[5]) &&
+            rc_channel_in_range(ch[7]));
+}
+
+static uint8_t rc_sticks_neutral(const int16_t ch[SBUS_NUM_CHANNELS])
+{
+    return (abs(ch[2] - RC_CH3_CENTER) <= RC_STICK_NEUTRAL_DEADZONE &&
+            abs(ch[3] - RC_CH4_CENTER) <= RC_STICK_NEUTRAL_DEADZONE);
+}
+
+static uint8_t rc_stick_jump_ok(const int16_t ch[SBUS_NUM_CHANNELS])
+{
+    if(!rc_prev_channels_valid)
+    {
+        return 1;
+    }
+
+    return (abs(ch[2] - rc_prev_ch3) <= RC_STICK_JUMP_THRESHOLD &&
+            abs(ch[3] - rc_prev_ch4) <= RC_STICK_JUMP_THRESHOLD);
+}
+
+static uint8_t rc_frame_is_trustworthy(const int16_t ch[SBUS_NUM_CHANNELS],
+                                       uint8_t failsafe,
+                                       uint8_t frame_lost)
+{
+    if(failsafe || frame_lost)
+    {
+        return 0;
+    }
+
+    if(!rc_control_channels_in_range(ch))
+    {
+        return 0;
+    }
+
+    if(!rc_ready && !rc_sticks_neutral(ch))
+    {
+        return 0;
+    }
+
+    if(!rc_stick_jump_ok(ch))
+    {
+        return 0;
+    }
+
+    return 1;
+}
+
+static void rc_enter_not_ready(uint32_t now)
+{
+    if(rc_ready || rc_not_ready_since_tick == 0U)
+    {
+        rc_not_ready_since_tick = now;
+        rc_zero_command_sent = 0;
+        rc_lift_stop_sent = 0;
+        rc_failsafe_stop_done = 0;
+    }
+
+    rc_ready = 0;
+    rc_valid_frame_count = 0;
+    rc_prev_channels_valid = 0;
+}
+
+static void rc_accept_trustworthy_frame(const int16_t ch[SBUS_NUM_CHANNELS], uint32_t now)
+{
+    rc_prev_ch3 = ch[2];
+    rc_prev_ch4 = ch[3];
+    rc_prev_channels_valid = 1;
+    rc_last_valid_frame_tick = now;
+
+    if(rc_valid_frame_count < RC_REQUIRED_VALID_FRAMES)
+    {
+        rc_valid_frame_count++;
+    }
+
+    if(rc_valid_frame_count >= RC_REQUIRED_VALID_FRAMES && !rc_ready)
+    {
+        rc_ready = 1;
+        rc_not_ready_since_tick = 0;
+        rc_zero_command_sent = 0;
+        rc_lift_stop_sent = 0;
+        rc_failsafe_stop_done = 0;
+        motor_speed_command_invalidate();
+    }
+}
+
+static void rc_safety_stop_update(uint32_t now)
+{
+    if(!rc_zero_command_sent ||
+       (now - rc_last_zero_command_tick) >= RC_ZERO_REFRESH_MS)
+    {
+        telemetry_control_command_begin();
+        speed_set(0, 0);
+        telemetry_control_command_end();
+        motor_speed_command_invalidate();
+        rc_zero_command_sent = 1;
+        rc_last_zero_command_tick = HAL_GetTick();
+    }
+
+    if(!rc_lift_stop_sent || current_lift_state != LIFT_STOP)
+    {
+        telemetry_control_command_begin();
+        lift_stop();
+        telemetry_control_command_end();
+        current_lift_state = LIFT_STOP;
+        rc_lift_stop_sent = 1;
+    }
+
+    if(!rc_failsafe_stop_done &&
+       rc_not_ready_since_tick != 0U &&
+       (now - rc_not_ready_since_tick) >= RC_FAILSAFE_STOP_TIMEOUT_MS &&
+       en_flag)
+    {
+        telemetry_control_command_begin();
+        motor_emergency_stop();
+        telemetry_control_command_end();
+        motor_speed_command_invalidate();
+        rc_failsafe_stop_done = 1;
+    }
+}
+
 static uint8_t telemetry_query_is_waiting(void)
 {
     return (telemetry_query_state == TELEMETRY_WAIT_LEFT ||
@@ -590,8 +933,8 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	// 开启LCD背光
 	HAL_Delay(10);
-	LCD_Init();//LCD初始化
-	LCD_Fill(0,0,LCD_W, LCD_H,BLACK);	
+	LCD_Init();
+	rc_lcd_init_screen();
 	HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_val,1);	// 读取ADC按键键值
 	HAL_TIM_Base_Start_IT(&htim2);
@@ -626,19 +969,35 @@ int main(void)
 		
 		telemetry_process_poll_only();
 		
+		uint32_t now = HAL_GetTick();
 		SBUS_TimeoutCheck();
+		if(sbus_failsafe)
+		{
+				rc_enter_not_ready(now);
+		}
 		if(sbus_frame_ok)
 		{
 				__disable_irq();
 				uint8_t local_buf[SBUS_FRAME_LEN];
 				memcpy(local_buf, (void*)sbus_buf, SBUS_FRAME_LEN);
 				uint8_t local_failsafe = sbus_failsafe;
-				telemetry_failsafe = local_failsafe;
+				uint8_t local_frame_lost = sbus_frame_lost;
 				sbus_frame_ok = 0;
 				__enable_irq();
 
 				int16_t ch[16] = {0};
 				SBUS_ParseChannels(local_buf, ch);
+				uint8_t frame_trustworthy = rc_frame_is_trustworthy(ch, local_failsafe, local_frame_lost);
+				if(frame_trustworthy)
+				{
+						rc_accept_trustworthy_frame(ch, now);
+				}
+				else
+				{
+						rc_enter_not_ready(now);
+				}
+				rc_lcd_capture_frame(ch, frame_trustworthy, local_failsafe, local_frame_lost, now);
+				telemetry_failsafe = !rc_ready;
 				
 /*
 				static uint8_t debug_counter = 0;
@@ -654,7 +1013,7 @@ int main(void)
 
 			
 
-				if(!local_failsafe)
+				if(rc_ready)
 				{
 						// ===================== 第一步：急停 / 使能（只设标志！） =====================
 						// 最高优先级：急停/失能
@@ -678,7 +1037,7 @@ int main(void)
 						else
 						{
 								// 使能
-								if(ch[5] < 500 && (emergency_stop || !en_flag))
+								if(ch[5] < 500 && (emergency_stop || !en_flag) && rc_sticks_neutral(ch))
 								{
 										telemetry_control_command_begin();
 										motor_clear_emergency_stop();
@@ -687,30 +1046,32 @@ int main(void)
 								}
 
 								// ===================== 第二步：电机驱动 =====================
+								if(en_flag && !emergency_stop)
+								{
 								int16_t desired_speed, desired_steer;
 								int16_t desired_left_rpm, desired_right_rpm;
 							//	int16_t allowed_left_rpm, allowed_right_rpm;
 
 								// 正确顺序
-								desired_speed =  (ch[2] - 992) / 32;  // 前后油门 CH3
-								desired_steer = (ch[3] - 988)/ 32;  // 左右转向	CH4
+								desired_speed = rc_desired_speed_from_ch3(ch[2]);  // 前后油门 CH3
+								desired_steer = rc_desired_steer_from_ch4(ch[3]);  // 左右转向	CH4
 
 								desired_left_rpm  = desired_speed + desired_steer / 4;
 								desired_right_rpm = desired_speed - desired_steer / 4;
 
 								motor_speed_control_update(desired_left_rpm,-desired_right_rpm);
+								}
+								else
+								{
+										motor_speed_control_update(0, 0);
+								}
 
 								// ===================== 第三步：升降控制 =====================
 								LiftState desired_lift_state;  // 用户想要的状态
 						//		LiftState allowed_lift_state;  // 系统允许的状态
 
 								// 3.1 先计算用户想要的状态（只看摇杆）
-								if(ch[7] < 500)
-										desired_lift_state = LIFT_UP;
-								else if(ch[7] > 1500)
-										desired_lift_state = LIFT_DOWN;
-								else
-										desired_lift_state = LIFT_STOP;
+								desired_lift_state = rc_desired_lift_from_ch8(ch[7]);
 
 								// 3.3 只有系统允许的状态发生变化时才发送指令
 								if(desired_lift_state != current_lift_state)
@@ -732,10 +1093,16 @@ int main(void)
 				else
 				{
 						// 信号丢失 → 全部清零
-						//motor_emergency_stop();
-						//lift_stop();
-						//current_lift_state = LIFT_STOP;
+						/* Safety stop is handled outside sbus_frame_ok as well. */
 				}
+		}
+		if(rc_ready && (now - rc_last_valid_frame_tick) > RC_TRUST_TIMEOUT_MS)
+		{
+				rc_enter_not_ready(now);
+		}
+		if(!rc_ready)
+		{
+				rc_safety_stop_update(HAL_GetTick());
 		}
 /*
 		// LCD 显示
@@ -746,7 +1113,8 @@ int main(void)
 		LCD_ShowIntNum(115,130,right,4,RED,WHITE,24);
 		LCD_ShowIntNum(115,80,left,4,RED,WHITE,24); 
 */		
-		telemetry_failsafe = sbus_failsafe;
+		telemetry_failsafe = (!rc_ready || sbus_failsafe);
+		rc_lcd_process(HAL_GetTick());
 		telemetry_process();
 														
     /* USER CODE END WHILE */

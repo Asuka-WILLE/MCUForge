@@ -11,15 +11,13 @@
 
 
 #if USE_HORIZONTAL==0||USE_HORIZONTAL==1
-//#define LCD_W 240
-#define LCD_W 280
+#define LCD_W 240
 #define LCD_H 280
 
 #else
 
 #define LCD_W 280
-//#define LCD_H 240
-#define LCD_H 280
+#define LCD_H 240
 #endif
 
  
@@ -96,7 +94,6 @@ void LCD_ShowPicture(uint16_t x,uint16_t y,uint16_t length,uint16_t width,const 
 #define LGRAYBLUE        0XA651 //浅灰蓝色(中间层颜色)
 #define LBBLUE           0X2B12 //浅棕蓝色(选择条目的反色)
 #endif
-
 
 
 
