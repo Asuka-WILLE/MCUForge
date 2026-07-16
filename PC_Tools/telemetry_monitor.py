@@ -823,12 +823,27 @@ def _create_session_dir(base_dir):
     return session_dir
 
 
-def run_headless(port, duration_s, output_dir=None, test_linear=None, test_steer=0, test_duration_ms=1200):
+def run_headless(
+    port,
+    duration_s,
+    output_dir=None,
+    test_linear=None,
+    test_steer=0,
+    test_duration_ms=1200,
+    test_sequence=None,
+):
     if duration_s <= 0:
         raise ValueError("duration 必须大于 0")
 
+    if test_sequence is not None and test_linear is not None:
+        raise ValueError("test_linear 与 test_sequence 不能同时使用")
+
+    sequence = list(test_sequence) if test_sequence is not None else []
     if test_linear is not None:
-        if abs(test_linear) > 20 or abs(test_steer) > 32 or (test_linear == 0 and test_steer == 0):
+        sequence = [test_linear]
+
+    for sequence_linear in sequence:
+        if abs(sequence_linear) > 20 or abs(test_steer) > 32 or (sequence_linear == 0 and test_steer == 0):
             raise ValueError("test command exceeds firmware safety limits")
         if not 100 <= test_duration_ms <= 10000:
             raise ValueError("test duration must be between 100 and 10000 ms")
@@ -845,7 +860,8 @@ def run_headless(port, duration_s, output_dir=None, test_linear=None, test_steer
         "duration_s": duration_s,
         "test_linear": test_linear,
         "test_steer": test_steer,
-        "test_duration_ms": test_duration_ms if test_linear is not None else None,
+        "test_duration_ms": test_duration_ms if sequence else None,
+        "test_sequence": sequence or None,
         "wheel_radius_m": WHEEL_RADIUS_M,
         "raw_log": RAW_LOG_FILENAME,
         "csv_log": CSV_LOG_FILENAME,
@@ -863,7 +879,12 @@ def run_headless(port, duration_s, output_dir=None, test_linear=None, test_steer
     max_left_cmd_abs = 0
     max_right_cmd_abs = 0
     pc_test_statuses = set()
-    test_sent = False
+    sequence_index = 0
+    sequence_waiting = False
+    sequence_active_seen = False
+    sequence_aborted = False
+    sequence_send_time = 0.0
+    commands_sent = 0
     ready_samples = 0
     start = time.monotonic()
 
@@ -889,21 +910,52 @@ def run_headless(port, duration_s, output_dir=None, test_linear=None, test_steer
                 elapsed = time.monotonic() - start
                 normalized = TelemetryMonitor._normalize_data(data, elapsed)
 
-                if test_linear is not None and not test_sent:
+                if sequence_index < len(sequence) and not sequence_aborted:
                     safe_ready = (
                         normalized["state"] == "RUN"
                         and normalized["caster_state"] == "IDLE"
+                        and not normalized["pc_test_active"]
                         and normalized["target_linear"] == 0
                         and normalized["target_steer"] == 0
                         and (normalized["left_rpm_abs"] or 0) <= 2
                         and (normalized["right_rpm_abs"] or 0) <= 2
                     )
-                    ready_samples = ready_samples + 1 if safe_ready else 0
-                    if ready_samples >= 3:
-                        command = f"MOVE {test_linear} {test_steer} {test_duration_ms}\n"
-                        serial_port.write(command.encode("ascii"))
-                        serial_port.flush()
-                        test_sent = True
+
+                    if not sequence_waiting:
+                        ready_samples = ready_samples + 1 if safe_ready else 0
+                        if ready_samples >= 3:
+                            command = (
+                                f"MOVE {sequence[sequence_index]} "
+                                f"{test_steer} {test_duration_ms}\n"
+                            )
+                            serial_port.write(command.encode("ascii"))
+                            serial_port.flush()
+                            commands_sent += 1
+                            sequence_waiting = True
+                            sequence_active_seen = False
+                            sequence_send_time = time.monotonic()
+                            ready_samples = 0
+                    else:
+                        if normalized["pc_test_active"]:
+                            sequence_active_seen = True
+                        elif sequence_active_seen:
+                            if normalized["pc_test_status"] == "DONE":
+                                sequence_index += 1
+                                sequence_waiting = False
+                                sequence_active_seen = False
+                                ready_samples = 0
+                            elif normalized["pc_test_status"] in {
+                                "REJECTED",
+                                "CANCELLED",
+                                "BAD_COMMAND",
+                            }:
+                                sequence_aborted = True
+                        elif (
+                            (time.monotonic() - sequence_send_time) >= 1.0
+                            and normalized["pc_test_status"]
+                            in {"REJECTED", "CANCELLED", "BAD_COMMAND"}
+                        ):
+                            sequence_aborted = True
 
                 raw_record = {
                     "pc_time": normalized["pc_time"],
@@ -932,7 +984,7 @@ def run_headless(port, duration_s, output_dir=None, test_linear=None, test_steer
                 if normalized["pc_test_status"]:
                     pc_test_statuses.add(normalized["pc_test_status"])
 
-            if test_linear is not None:
+            if sequence:
                 serial_port.write(b"STOP\n")
                 serial_port.flush()
             raw_file.flush()
@@ -952,7 +1004,11 @@ def run_headless(port, duration_s, output_dir=None, test_linear=None, test_steer
         "max_right_rpm_abs": max_right_abs,
         "max_left_cmd_abs": max_left_cmd_abs,
         "max_right_cmd_abs": max_right_cmd_abs,
-        "test_sent": test_sent,
+        "test_sent": commands_sent > 0,
+        "commands_sent": commands_sent,
+        "sequence_requested": len(sequence),
+        "sequence_completed": sequence_index,
+        "sequence_aborted": sequence_aborted,
         "pc_test_statuses": sorted(pc_test_statuses),
         "max_wheel_mismatch_rpm": max(mismatch_values) if mismatch_values else None,
         "mean_wheel_mismatch_rpm": round(sum(mismatch_values) / len(mismatch_values), 3) if mismatch_values else None,
@@ -971,18 +1027,46 @@ def main():
     parser.add_argument("--test-linear", type=int, help="受限实机测试线速度，范围 -20..20 RPM")
     parser.add_argument("--test-steer", type=int, default=0, help="受限实机测试转向量，范围 -32..32")
     parser.add_argument("--test-duration-ms", type=int, default=1200, help="受限实机测试持续时间，100..10000 ms")
+    parser.add_argument("--reversal-cycles", type=int, default=0, help="自动执行前进、停稳、后退循环，范围 1..10")
+    parser.add_argument("--reversal-linear", type=int, default=20, help="换向测试速度绝对值，范围 1..20 RPM")
     args = parser.parse_args()
 
     if args.headless:
         if not args.port:
             parser.error("--headless 模式必须指定 --port")
+
+        test_sequence = None
+        duration_s = args.duration
+        if args.reversal_cycles:
+            if args.test_linear is not None:
+                parser.error("--test-linear 与 --reversal-cycles 不能同时使用")
+            if not 1 <= args.reversal_cycles <= 10:
+                parser.error("--reversal-cycles 必须在 1..10")
+            if not 1 <= abs(args.reversal_linear) <= 20:
+                parser.error("--reversal-linear 绝对值必须在 1..20")
+            if args.test_steer != 0:
+                parser.error("换向测试必须保持 --test-steer 0")
+
+            reversal_linear = abs(args.reversal_linear)
+            test_sequence = [
+                linear
+                for _ in range(args.reversal_cycles)
+                for linear in (reversal_linear, -reversal_linear)
+            ]
+            minimum_duration = (
+                len(test_sequence) * (args.test_duration_ms / 1000.0 + 2.5)
+                + 3.0
+            )
+            duration_s = max(duration_s, minimum_duration)
+
         return run_headless(
             args.port,
-            args.duration,
+            duration_s,
             args.output_dir,
             args.test_linear,
             args.test_steer,
             args.test_duration_ms,
+            test_sequence,
         )
 
     enable_high_dpi_awareness()

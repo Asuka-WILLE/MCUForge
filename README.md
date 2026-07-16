@@ -298,6 +298,16 @@ PC_Tools/data/2026-05-31_18-30-01/
 
 `raw.jsonl` 保存每帧原始 JSON 和上位机归一化后的字段；`telemetry.csv` 同时记录左右轮有符号反馈/绝对值、轮速差、驱动命令、轨迹、万向轮归正、USB 测试、同步修正、遥控通道、运行状态和升降高度。如果单片机帧中缺少某个字段，或字段为 `null` / 空值 / 无法解析，JSONL 中记录为 `null`，CSV 中保留空单元格；如果单片机实际发送数值 `0`，上位机会按真实数据记录为 `0`。
 
+### 自动前后换向测试
+
+下面的命令会自动执行 3 轮“前进、完全停稳、后退、完全停稳”，并把全过程记录到 `PC_Tools/data/`：
+
+```powershell
+python PC_Tools\telemetry_monitor.py --headless --port COM3 --reversal-cycles 3 --reversal-linear 20 --test-duration-ms 2500
+```
+
+每一段运动开始前，上位机必须连续收到 3 帧安全状态：固件处于 `RUN`、万向轮状态为 `IDLE`、USB 测试未运行、遥控目标回零、左右轮反馈均不超过 2 RPM。任何一段被拒绝、取消或出现错误后，后续序列会终止；采集结束时上位机还会额外发送 `STOP`。如果命令行给出的 `--duration` 太短，程序会自动延长到足够覆盖完整测试序列。
+
 ## 当前运行流程
 
 1. 上电后初始化 HAL、系统时钟、GPIO、DMA、串口、SPI、ADC、TIM2。
