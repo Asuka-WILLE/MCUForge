@@ -1,0 +1,54 @@
+# Keil generated files
+MDK-ARM/UM10550/
+MDK-ARM/*.log
+Objects/
+Listings/
+*.o
+*.d
+*.dep
+*.axf
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.lnp
+*.iex
+*.crf
+*.htm
+*.build_log.htm
+
+# Unused CMSIS packages copied by CubeMX
+Drivers/CMSIS/Core/
+Drivers/CMSIS/Core_A/
+Drivers/CMSIS/docs/
+Drivers/CMSIS/DSP/
+Drivers/CMSIS/NN/
+Drivers/CMSIS/RTOS/
+Drivers/CMSIS/RTOS2/
+
+# Debug / temporary
+DebugConfig/
+/build/
+/dist/
+/UM10550/
+PC_Tools/data/
+PC_Tools/build/
+PC_Tools/dist/*
+!PC_Tools/dist/telemetry_monitor.exe
+PC_Tools/__pycache__/
+PC_Tools/*.spec
+*.uvguix.*
+*.uvguix
+*.scvd
+*.dbgconf
+
+# User/local settings
+*.uvoptx
+*.uvopt
+*.uvgui.*
+*.uvgui
+
+# Windows
+Thumbs.db
+desktop.ini
