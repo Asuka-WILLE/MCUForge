@@ -16,6 +16,25 @@ typedef enum {
    // LIFT_RESET
 } LiftState;
 
+typedef struct
+{
+    uint32_t sequence;
+    uint32_t left_ok_count;
+    uint32_t right_ok_count;
+    uint32_t left_fail_count;
+    uint32_t right_fail_count;
+    uint32_t left_last_tick;
+    uint32_t right_last_tick;
+    uint32_t left_last_sequence;
+    uint32_t right_last_sequence;
+    int16_t left_last_value;
+    int16_t right_last_value;
+    uint8_t left_last_ok;
+    uint8_t right_last_ok;
+} MotorWriteDiagnostics;
+
+extern MotorWriteDiagnostics motor_write_diagnostics;
+
 
 uint16_t Modbus_CRC16(uint8_t *data, uint16_t len);
 void    motor_start_init(void);
