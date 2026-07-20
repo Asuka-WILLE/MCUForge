@@ -111,7 +111,8 @@
 #define STRAIGHT_SYNC_PROGRESS_MAX_DT_MS     160U
 #define STRAIGHT_SYNC_TRIM_REQUEST_THRESHOLD_RPM 0.75f
 #define STRAIGHT_SYNC_LAUNCH_FAST_RPM         4
-#define STRAIGHT_SYNC_LAUNCH_STALLED_RPM      1
+#define STRAIGHT_SYNC_LAUNCH_STALLED_RPM      3
+#define STRAIGHT_SYNC_LAUNCH_STALL_GAP_RPM    5
 #define STRAIGHT_SYNC_LAUNCH_HOLD_RPM          8
 #define STRAIGHT_SYNC_LAUNCH_MAX_TRIM_RPM     16
 #define NEUTRAL_TERMINAL_SPEED_RPM            1.0f
@@ -1326,7 +1327,9 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
         }
 
         if(travel_left_rpm >= STRAIGHT_SYNC_LAUNCH_FAST_RPM &&
-           travel_right_rpm <= STRAIGHT_SYNC_LAUNCH_STALLED_RPM)
+           travel_right_rpm <= STRAIGHT_SYNC_LAUNCH_STALLED_RPM &&
+           (travel_left_rpm - travel_right_rpm) >=
+               STRAIGHT_SYNC_LAUNCH_STALL_GAP_RPM)
         {
             int16_t launch_trim = (int16_t)(abs(*left_cmd) -
                                             STRAIGHT_SYNC_LAUNCH_HOLD_RPM);
@@ -1337,7 +1340,9 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
                                               STRAIGHT_SYNC_LAUNCH_MAX_TRIM_RPM);
         }
         else if(travel_right_rpm >= STRAIGHT_SYNC_LAUNCH_FAST_RPM &&
-                travel_left_rpm <= STRAIGHT_SYNC_LAUNCH_STALLED_RPM)
+                travel_left_rpm <= STRAIGHT_SYNC_LAUNCH_STALLED_RPM &&
+                (travel_right_rpm - travel_left_rpm) >=
+                    STRAIGHT_SYNC_LAUNCH_STALL_GAP_RPM)
         {
             int16_t launch_trim = (int16_t)(abs(*right_cmd) -
                                             STRAIGHT_SYNC_LAUNCH_HOLD_RPM);
