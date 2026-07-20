@@ -1109,8 +1109,13 @@ def main():
                 for _ in range(args.reversal_cycles)
                 for linear in (reversal_linear, -reversal_linear)
             ]
+            effective_motion_ms = (
+                args.test_stop_after_ms
+                if args.test_stop_after_ms is not None
+                else args.test_duration_ms
+            )
             minimum_duration = (
-                len(test_sequence) * (args.test_duration_ms / 1000.0 + 2.5)
+                len(test_sequence) * (effective_motion_ms / 1000.0 + 2.5)
                 + 3.0
             )
             duration_s = max(duration_s, minimum_duration)
