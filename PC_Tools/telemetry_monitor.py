@@ -128,6 +128,8 @@ CSV_FIELDS = [
     "mcu_tick_ms",
     "left_rpm",
     "right_rpm",
+    "left_rpm_x10_raw",
+    "right_rpm_x10_raw",
     "left_rpm_abs",
     "right_rpm_abs",
     "wheel_mismatch_rpm",
@@ -720,8 +722,10 @@ class TelemetryMonitor(tk.Tk):
 
     @classmethod
     def _normalize_data(cls, data, elapsed_s):
-        left_raw = cls._optional_int(data, "left_rpm")
-        right_raw = cls._optional_int(data, "right_rpm")
+        left_x10 = cls._optional_int(data, "left_rpm_x10")
+        right_x10 = cls._optional_int(data, "right_rpm_x10")
+        left_raw = round(left_x10 / 10.0, 1) if left_x10 is not None else cls._optional_float(data, "left_rpm")
+        right_raw = round(right_x10 / 10.0, 1) if right_x10 is not None else cls._optional_float(data, "right_rpm")
         left_abs = None if left_raw is None else abs(left_raw)
         right_abs = None if right_raw is None else abs(right_raw)
         speed = None if left_abs is None or right_abs is None else ((left_abs + right_abs) / 2) * RPM_TO_MPS
@@ -741,6 +745,8 @@ class TelemetryMonitor(tk.Tk):
             "mcu_tick_ms": cls._optional_int(data, "tick_ms"),
             "left_rpm": left_raw,
             "right_rpm": right_raw,
+            "left_rpm_x10_raw": left_x10,
+            "right_rpm_x10_raw": right_x10,
             "left_rpm_abs": left_abs,
             "right_rpm_abs": right_abs,
             "wheel_mismatch_rpm": mismatch,

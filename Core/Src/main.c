@@ -48,6 +48,7 @@
 #define TELEMETRY_PERIOD_MS 50U
 #define TELEMETRY_LINE_MAX  1024U
 #define TELEMETRY_RESPONSE_LEN 7U
+#define MOTOR_SPEED_FEEDBACK_REGISTER 0x500EU
 #define TELEMETRY_QUERY_PERIOD_MS 30U
 #define TELEMETRY_LIFT_QUERY_PERIOD_MS 500U
 #define TELEMETRY_MOTOR_TIMEOUT_MS 50U
@@ -194,6 +195,8 @@ volatile LiftState current_lift_state = LIFT_STOP;
 int16_t emergency_stop=0;
 int16_t left=0;
 int16_t right=0;
+static int16_t left_speed_x10=0;
+static int16_t right_speed_x10=0;
 int16_t current_speed_rpm=0;
 int16_t lift_height_mm=-1;
 volatile uint8_t telemetry_failsafe=0;
@@ -666,13 +669,19 @@ static void telemetry_build_read_cmd(uint8_t slave_addr, uint16_t reg, uint8_t *
     cmd[7] = crc >> 8;
 }
 
+static int16_t telemetry_rpm_x10_to_legacy_rpm(int16_t rpm_x10)
+{
+    return (rpm_x10 >= 0) ? (int16_t)((rpm_x10 + 5) / 10) :
+                            (int16_t)((rpm_x10 - 5) / 10);
+}
+
 static uint8_t telemetry_start_motor_query(uint8_t slave_addr, TelemetryQueryState next_state)
 {
     uint8_t cmd[8];
 
     telemetry_reset_rx_buffer();
     telemetry_clear_uart_rx(&huart2);
-    telemetry_build_read_cmd(slave_addr, 0x5000, cmd);
+    telemetry_build_read_cmd(slave_addr, MOTOR_SPEED_FEEDBACK_REGISTER, cmd);
 
     if(RS485_SendPacketTimeout(cmd, 8, TELEMETRY_TX_TIMEOUT_MS) != HAL_OK)
     {
@@ -719,13 +728,15 @@ static void telemetry_finish_motor_query(uint8_t response_ready)
     {
         if(telemetry_query_slave == 1)
         {
-            left = value;
+            left_speed_x10 = value;
+            left = telemetry_rpm_x10_to_legacy_rpm(value);
             left_feedback_tick = HAL_GetTick();
             left_feedback_sequence++;
         }
         else if(telemetry_query_slave == 2)
         {
-            right = value;
+            right_speed_x10 = value;
+            right = telemetry_rpm_x10_to_legacy_rpm(value);
             right_feedback_tick = HAL_GetTick();
             right_feedback_sequence++;
         }
@@ -1272,8 +1283,6 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
         uint32_t feedback_skew_ms = (left_feedback_tick >= right_feedback_tick) ?
                                     (left_feedback_tick - right_feedback_tick) :
                                     (right_feedback_tick - left_feedback_tick);
-        int16_t physical_left_rpm = left;
-        int16_t physical_right_rpm = (int16_t)(-right);
         float travel_left_rpm;
         float travel_right_rpm;
 
@@ -1288,8 +1297,8 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
         straight_sync.last_left_feedback_sequence = left_feedback_sequence;
         straight_sync.last_right_feedback_sequence = right_feedback_sequence;
         straight_sync.pair_sequence++;
-        travel_left_rpm = (float)(travel_direction * physical_left_rpm);
-        travel_right_rpm = (float)(travel_direction * physical_right_rpm);
+        travel_left_rpm = (float)travel_direction * ((float)left_speed_x10 / 10.0f);
+        travel_right_rpm = (float)travel_direction * ((float)(-right_speed_x10) / 10.0f);
 
         if(travel_left_rpm >= STRAIGHT_SYNC_LAUNCH_FAST_RPM &&
            travel_right_rpm <= STRAIGHT_SYNC_LAUNCH_STALLED_RPM &&
@@ -2019,10 +2028,12 @@ static void telemetry_send(void)
                                   (now - straight_sync.launch_start_tick) <=
                                   STRAIGHT_SYNC_LAUNCH_WINDOW_MS);
     int len = snprintf(line, sizeof(line),
-                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"sync_launch_active\":%u,\"sync_pair_sequence\":%lu,\"sync_pair_skew_ms\":%lu,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_link_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"speed_pair_sequence\":%lu,\"left_speed_age_ms\":%lu,\"right_speed_age_ms\":%lu,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu}\r\n",
+                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_rpm_x10\":%d,\"right_rpm_x10\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"sync_launch_active\":%u,\"sync_pair_sequence\":%lu,\"sync_pair_skew_ms\":%lu,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_link_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"speed_pair_sequence\":%lu,\"left_speed_age_ms\":%lu,\"right_speed_age_ms\":%lu,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu}\r\n",
                        (unsigned long)now,
                        left,
                        right,
+                       left_speed_x10,
+                       right_speed_x10,
                        motor_last_left_cmd,
                        motor_last_right_cmd,
                        (unsigned int)motor_speed_cmd_valid,
