@@ -943,13 +943,13 @@ def run_headless(
                         and not normalized["pc_test_active"]
                         and normalized["target_linear"] == 0
                         and normalized["target_steer"] == 0
-                        and (normalized["left_rpm_abs"] or 0) <= 2
-                        and (normalized["right_rpm_abs"] or 0) <= 2
+                        and (normalized["left_rpm_abs"] or 0) == 0
+                        and (normalized["right_rpm_abs"] or 0) == 0
                     )
 
                     if not sequence_waiting:
                         ready_samples = ready_samples + 1 if safe_ready else 0
-                        if ready_samples >= 3:
+                        if ready_samples >= 6:
                             command = (
                                 f"MOVE {sequence[sequence_index]} "
                                 f"{test_steer} {test_duration_ms}\n"
