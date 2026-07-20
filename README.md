@@ -113,7 +113,7 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | `telemetry_process_poll_only()` | 主循环开头只轮询已有遥测回包，不新发查询，避免影响随后到来的遥控控制命令。 |
 | `motor_write_speed_with_echo()` | 写入单台驱动器 `0x2318` 后接收并逐字节校验 Modbus `0x06` 应答。 |
 | `motor_speed_set_confirmed()` | 保持右轮先发，在后台查询、右轮应答和左轮写入之间保留 2 ms 静默间隔，并统计两轮写入成功/失败。 |
-| `straight_sync_apply()` | 直线运动时依据新鲜轮速反馈只削减跑在前面的轮子；单轮先启动时动态限制快轮，两轮都启动后退回小幅同步修正。 |
+| `straight_sync_apply()` | 直线启动时只使用左右轮成对的新鲜 `0.1 rpm` 反馈并削减快轮；停车尾段允许在两侧缓存均不老于 80 ms 时随任一新反馈更新，只把仍在运动的轮子继续削向零。 |
 | `joystick_deadzone()` | 摇杆死区处理函数，当前未在主循环中使用。 |
 | `accel_limit()` | 速度变化限幅函数，当前未在主循环中使用。 |
 
@@ -136,7 +136,7 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | `motor_start_init()` | 调用统一的 `motor_enable()` 流程，使左右驱动器使用完全相同的零速目标、速度模式和加减速参数。 |
 | `change_station()` | 修改电机站号，将站号从 `1` 改为 `2`，用于配置右轮电机站号。正常运行时不要反复调用。 |
 | `speed_set()` | 限制左右轮目标转速到 `MAX_RPM` 范围内，并分别向站号 `1`、`2` 写入速度指令；当前先向右轮站号 `2` 写入速度，再经短帧间隔向左轮站号 `1` 写入速度，减少原先左轮先启动带来的左右响应差。 |
-| `motor_read_speed()` | 读取指定站号电机的反馈转速，读取地址为 `0x5000`。 |
+| `motor_read_speed()` | 保留的阻塞式兼容读取函数，读取 `0x5000`；当前主循环遥测和同步控制不调用它。 |
 | `lift_read_height()` | 读取升降机构当前位置，读寄存器 `0x0002`，当前按 `1 = 1 mm` 显示。 |
 | `motor_stop()` | 失能左右轮毂电机。 |
 | `motor_enable()` | 先将两台驱动器目标清零，并统一写入速度模式、加速时间和减速时间，再使能左右轮毂电机。 |
@@ -183,7 +183,8 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | `uart2_rx_buf[7]` | `Core/Src/main.c` | 轮毂电机速度反馈帧接收缓存。 |
 | `uart2_rx_done` | `Core/Src/main.c` | 轮毂电机速度反馈帧接收并校验成功标志。 |
 | `motor_real_speed` | `Core/Src/main.c` | 最近一次解析到的轮毂电机反馈速度。 |
-| `left` / `right` | `Core/Src/main.c` | 最近一次 USB 遥测读取到的左右轮反馈转速。 |
+| `left` / `right` | `Core/Src/main.c` | 由 `0x500E` 原始值四舍五入得到的整数 rpm 兼容值，供旧显示和停稳状态判断使用。 |
+| `left_speed_x10` / `right_speed_x10` | `Core/Src/main.c` | `0x500E` 返回的原始有符号轮速，单位 `0.1 rpm`；启动同步直接使用该精度。 |
 | `current_speed_rpm` | `Core/Src/main.c` | 当前移动速度，按左右轮安装方向修正后计算为 `(left - right) / 2`，单位 rpm。 |
 | `lift_height_mm` | `Core/Src/main.c` | 升降机构高度，单位 mm；读取失败时为 `-1`。 |
 | `telemetry_query_state` | `Core/Src/main.c` | 后台遥测查询状态机；左右轮每 30 ms 交替查询，升降高度每 500 ms 插入一次，控制写入始终优先。 |
@@ -207,7 +208,8 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | 减速时间 | `1` / `2` | `0x2321 = 0x0064` | 两台驱动器统一使用较短内部减速时间，减少停车拖尾和转向。 |
 | 急停 | `1` / `2` | `0x2322 = 1` | 进入急停状态。 |
 | 清急停 | `1` / `2` | `0x2322 = 0` | 清除急停状态。 |
-| 读反馈速度 | `1` / `2` | `0x5000` | 读取电机反馈转速。 |
+| 高精度反馈速度 | `1` / `2` | `0x500E` | 当前后台遥测读取，原始单位 `0.1 rpm`。 |
+| 兼容反馈速度 | `1` / `2` | `0x5000` | 仅由未接入主循环的阻塞式 `motor_read_speed()` 保留。 |
 | 修改站号 | `1` | `0x4503 = 2` | 配置右轮站号时使用。 |
 
 ### 升降机构 USART3
@@ -234,7 +236,7 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 单片机通过 USB CDC 虚拟串口每约 50 ms 发送一行 UTF-8 JSON，以 `\r\n` 结尾。示例：
 
 ```json
-{"left_rpm":12,"right_rpm":-11,"left_cmd":12,"right_cmd":-12,"caster_state":"IDLE","pc_test_status":"IDLE","sync_trim":0,"rc_ready":1,"rc_ch6":192,"sbus_failsafe":0,"state":"RUN","height_mm":245}
+{"left_rpm":12,"right_rpm":-11,"left_rpm_x10":120,"right_rpm_x10":-111,"left_cmd":12,"right_cmd":-12,"caster_state":"IDLE","pc_test_status":"IDLE","sync_trim":0,"rc_ready":1,"rc_ch6":192,"sbus_failsafe":0,"state":"RUN","height_mm":245}
 ```
 
 字段含义：
@@ -243,12 +245,14 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | --- | --- |
 | `left_rpm` | 左轮反馈转速，单位 rpm。 |
 | `right_rpm` | 右轮反馈转速，单位 rpm；因右轮安装方向可能与左轮相反，符号按电机实际反馈保留。 |
+| `left_rpm_x10` / `right_rpm_x10` | 驱动器 `0x500E` 原始反馈，单位 `0.1 rpm`；PC 工具优先用这两个字段还原一位小数轮速。 |
 | `speed_rpm` | 固件保留的等效平均轮速，单位 rpm；当前上位机不再用该字段计算显示速度。 |
 | `left_cmd` / `right_cmd` | 最近一次发送给左右驱动器的有符号速度命令。 |
 | `caster_state` | 当前正常操控路径固定为 `IDLE`；会缓存旧运动目标的 `BRAKE/CRAWL` 归正流程已停用。 |
 | `traj_speed_x100` / `traj_accel_x100` | STM32 轨迹速度和加速度，放大 100 倍传输。 |
 | `pc_test_*` | 受限 USB 实机测试的目标、剩余时间和执行状态。 |
-| `sync_trim` / `sync_error_x100` | 直线左右轮同步修正量和滤波误差。 |
+| `sync_trim` / `sync_error_x100` | 左右轮同步削减量和滤波误差；正负号表示被削减的物理侧，不代表固定左右偏置。 |
+| `sync_pair_sequence` / `sync_pair_skew_ms` | 严格成对同步样本序号及两轮采样时差；启动阶段只使用不超过 80 ms 的成对样本。 |
 | `rc_ready` / `rc_ch3` / `rc_ch4` / `rc_ch6` | 遥控可信状态和关键通道值。 |
 | `rc_age_ms` / `rc_link_age_ms` / `rc_frame_lost_count` | 最近被控制器接受的 SBUS 帧年龄、最近合法链路帧年龄及孤立丢帧累计值；快速摇杆确认不会再被误判为链路失联。 |
 | `rc_stop_count` / `rc_recovery_count` / `rc_stop_reason` | 遥控真正失效、恢复次数及最近停机原因。 |
@@ -313,7 +317,7 @@ PC_Tools/data/2026-05-31_18-30-01/
 python PC_Tools\telemetry_monitor.py --headless --port COM3 --reversal-cycles 3 --reversal-linear 20 --test-duration-ms 2500
 ```
 
-每一段运动开始前，上位机必须连续收到 3 帧安全状态：固件处于 `RUN`、万向轮状态为 `IDLE`、USB 测试未运行、遥控目标回零、左右轮反馈均不超过 2 RPM。任何一段被拒绝、取消或出现错误后，后续序列会终止；采集结束时上位机还会额外发送 `STOP`。如果命令行给出的 `--duration` 太短，程序会自动延长到足够覆盖完整测试序列。
+每一段运动开始前，上位机必须连续收到 6 帧安全状态（约 300 ms）：固件处于 `RUN`、万向轮状态为 `IDLE`、USB 测试未运行、遥控目标回零、左右轮高精度反馈均不超过 `0.5 rpm`。任何一段被拒绝、取消或出现错误后，后续序列会终止；采集结束时上位机还会额外发送 `STOP`。如果命令行给出的 `--duration` 太短，程序会自动延长到足够覆盖完整测试序列。
 
 ## 当前运行流程
 
@@ -330,7 +334,7 @@ python PC_Tools\telemetry_monitor.py --headless --port COM3 --reversal-cycles 3 
 11. 根据 `CH3`、`CH4` 得到底盘线速度和转向目标，先经公共 20 ms S 曲线，再解算左右轮；摇杆归中立即锁存零目标，轨迹只允许继续向零减速。
 12. 根据 `CH8` 控制升降机构上升、下降或停止。
 13. 主循环开头先快速轮询已有遥测回包，不新发查询，确保随后遥控控制命令优先执行。
-14. 主循环末尾推进后台遥测状态机：左右轮每 `30 ms` 交替查询，单轮通常约 `60 ms` 更新一次；升降高度每 `500 ms` 查询一次。
+14. 主循环末尾推进后台遥测状态机：左右轮每 `30 ms` 交替读取 `0x500E`，单轮通常约 `60 ms` 更新一次；升降高度每 `500 ms` 查询一次。
 15. USB CDC 每约 50 ms 发送一次 JSON 遥测帧；若某次查询超时或 CRC 错误，继续使用上一次缓存值。
 
 ## 注意事项
@@ -338,15 +342,15 @@ python PC_Tools\telemetry_monitor.py --headless --port COM3 --reversal-cycles 3 
 1. 每次软件使能都会对站号 1、2 写入统一的零速目标、速度模式和加减速参数，不再依赖驱动器历史保存值。
 2. SBUS 单次 `frame_lost` 只作为诊断计数；接收机 `failsafe` 或连续 60 ms 没有可信帧才进入安全停车，持续 150 ms 后执行驱动器急停。
 3. `CH3`、`CH4` 已使用中位死区；线速度和转向量均经过限加速度、限减速度和限 jerk 的公共 S 曲线。
-4. `motor_read_speed()` 已接入 USB 遥测，LCD 显示代码仍保持注释，避免和电脑端监控重复。
+4. USB 遥测使用非阻塞 `0x500E` 查询；阻塞式 `motor_read_speed()` 仅作兼容保留，LCD 显示代码仍保持注释。
 5. `change_station()` 会修改电机站号，不应在正常遥控运行时调用。
 6. 源码中部分中文注释存在编码显示异常，代码逻辑本身不受影响；后续整理注释时应统一文件编码，避免 CubeMX 再生成后继续乱码。
 
 ## 建议的下一步改进
 
-1. 打开 SBUS 失控保护，让信号丢失时强制电机急停、升降停止。
-2. 接入摇杆死区，避免中位轻微抖动导致轮毂电机低速爬行。
-3. 接入加速度限幅，让轮毂电机速度变化更平滑。
+1. 增加 `0x5015/0x5016` 累计位置诊断，用真实轮程而不是轮速积分评估可见偏航。
+2. 继续读取驱动器内部目标、转矩和母线电压，区分驱动保持、机械阻力和再生制动限制。
+3. 若现场仍能观察到转向松手拖尾，单独调整角速度停车 jerk；不要改动已通过验证的直线停车参数。
 4. 将启动阶段连续 `lift_up()` 改为明确的回零/复位流程，避免上电即上升带来的机械风险。
 5. 如需进一步降低遥测开销，可把当前非阻塞轮询升级为 UART ReceiveToIdle DMA；但 DMA 不是必要前提，现阶段主控不会等待遥测回包。
 
@@ -455,3 +459,14 @@ python PC_Tools\telemetry_monitor.py --headless --port COM3 --reversal-cycles 3 
 - USB 受限直线测试扩展到 ±32 RPM；自动序列必须检测到两轮连续约 300 ms 为 0 RPM 才允许下一次零速启动，并支持提前发送 `STOP` 验证归中锁存。
 - 当前实测：±25 RPM、±32 RPM 各完成正反 5 次、每段运行 5 秒；停车尾段最大约 267 ms，速度写应答最终失败为 0。最大转向量松手后的残余旋转为 171～255 ms；四次提前归中测试均未出现零命令后再次运动命令。
 - 快速遥控前进、后退、左右转和归中连续记录 30 秒，全程保持 `RUN`，假停机/恢复增量为 0；三次真实归中均在 460～534 ms 内平滑降到零命令，零命令后未自行恢复运动。
+
+### v3.1 高精度反馈与停车尾段同步版
+
+- 左右轮后台反馈由整数 rpm 的 `0x5000` 切换为 `0x500E`，固件保留原始 `0.1 rpm` 值；PC 工具优先使用高精度字段并把自动序列停稳门槛收紧到 `0.5 rpm`。
+- 启动同步不再把一侧新反馈和另一侧旧缓存直接比较：只有左右轮各产生新样本且采样时差不超过 80 ms 才更新启动修正。
+- 启动 1 秒内若一轮不高于 8 RPM 且落后至少 5 RPM，只把快轮短暂压到约 8 RPM；两轮均运动后使用更快的比例滤波，仍不增加慢轮动力、不固定补偿某一侧。
+- 停车尾段把同步范围延伸到 1 RPM；当一轮已不高于 `0.5 rpm`、另一轮仍不低于 `1 rpm` 时，只把仍在运动的轮子最多削减 2 RPM，可削到零但绝不反向。
+- 轮程积分补偿试验 `launch-progress-sync-rc1/rc2` 因全程残差和最坏峰值恶化而被明确否决；当前固件不保留该积分。
+- 当前候选标签为 `neutral-tail-fresh-feedback-rc2`（提交 `d73fe6c`），最后一次烧录成功时间为 15:07:57，完整重编译为 `0 Error(s), 0 Warning(s)`。
+- 高精度实测：±25 RPM 共 8 段，1.2 秒轮程差平均约 16.5 mm、最坏 26.0 mm，停车时差 7/8 次不超过 300 ms、单次 339 ms；±32 RPM 共 6 段，1.2 秒轮程差平均约 13.4 mm、最坏 23.1 mm，停车时差最坏 230 ms。所有有效自动测试的左右写失败、RC 停机/恢复增量均为 0。
+- 转向松手后，轨迹在 259～264 ms 到零，轮速尾巴为 277/382 ms；提前 `STOP` 两次均在 512～569 ms 到零命令，零命令后旧运动命令重新出现 0 次。
