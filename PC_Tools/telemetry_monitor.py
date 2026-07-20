@@ -863,7 +863,7 @@ def run_headless(
         sequence = [test_linear]
 
     for sequence_linear in sequence:
-        if abs(sequence_linear) > 20 or abs(test_steer) > 32 or (sequence_linear == 0 and test_steer == 0):
+        if abs(sequence_linear) > 32 or abs(test_steer) > 32 or (sequence_linear == 0 and test_steer == 0):
             raise ValueError("test command exceeds firmware safety limits")
         if not 100 <= test_duration_ms <= 10000:
             raise ValueError("test duration must be between 100 and 10000 ms")
@@ -1048,7 +1048,7 @@ def main():
     parser.add_argument("--test-steer", type=int, default=0, help="受限实机测试转向量，范围 -32..32")
     parser.add_argument("--test-duration-ms", type=int, default=1200, help="受限实机测试持续时间，100..10000 ms")
     parser.add_argument("--reversal-cycles", type=int, default=0, help="自动执行前进、停稳、后退循环，范围 1..10")
-    parser.add_argument("--reversal-linear", type=int, default=20, help="换向测试速度绝对值，范围 1..20 RPM")
+    parser.add_argument("--reversal-linear", type=int, default=20, help="换向测试速度绝对值，范围 1..32 RPM")
     args = parser.parse_args()
 
     if args.headless:
@@ -1062,8 +1062,8 @@ def main():
                 parser.error("--test-linear 与 --reversal-cycles 不能同时使用")
             if not 1 <= args.reversal_cycles <= 10:
                 parser.error("--reversal-cycles 必须在 1..10")
-            if not 1 <= abs(args.reversal_linear) <= 20:
-                parser.error("--reversal-linear 绝对值必须在 1..20")
+            if not 1 <= abs(args.reversal_linear) <= 32:
+                parser.error("--reversal-linear 绝对值必须在 1..32")
             if args.test_steer != 0:
                 parser.error("换向测试必须保持 --test-steer 0")
 
