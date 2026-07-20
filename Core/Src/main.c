@@ -46,7 +46,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define TELEMETRY_PERIOD_MS 50U
-#define TELEMETRY_LINE_MAX  768U
+#define TELEMETRY_LINE_MAX  896U
 #define TELEMETRY_RESPONSE_LEN 7U
 #define TELEMETRY_QUERY_PERIOD_MS 60U
 #define TELEMETRY_MOTOR_TIMEOUT_MS 50U
@@ -106,7 +106,7 @@
 #define NEUTRAL_ZERO_BURST_PERIOD_MS          20U
 #define NEUTRAL_ZERO_BURST_DURATION_MS        300U
 #define RC_REQUIRED_VALID_FRAMES   3U
-#define RC_TRUST_TIMEOUT_MS        30U
+#define RC_TRUST_TIMEOUT_MS        60U
 #define RC_FAILSAFE_STOP_TIMEOUT_MS 150U
 #define RC_ZERO_REFRESH_MS         50U
 #define RC_CH3_CENTER              992
@@ -303,6 +303,18 @@ static uint32_t rc_last_zero_command_tick=0;
 static uint8_t rc_zero_command_sent=0;
 static uint8_t rc_lift_stop_sent=0;
 static uint8_t rc_failsafe_stop_done=0;
+static uint32_t rc_frame_lost_count=0U;
+static uint32_t rc_not_ready_event_count=0U;
+static uint32_t rc_recovery_count=0U;
+static uint8_t rc_last_stop_reason=0U;
+
+typedef enum
+{
+    RC_STOP_REASON_NONE = 0,
+    RC_STOP_REASON_FAILSAFE = 1,
+    RC_STOP_REASON_TIMEOUT = 2,
+    RC_STOP_REASON_INVALID_FRAME = 3
+} RcStopReason;
 
 typedef struct
 {
@@ -1286,7 +1298,10 @@ static void motor_speed_command_invalidate(void)
     motor_speed_cmd_valid = 0;
     motor_target_linear = 0;
     motor_target_steer = 0;
-    pc_test_cancel(PC_TEST_CANCELLED);
+    if(pc_test_control.active)
+    {
+        pc_test_cancel(PC_TEST_CANCELLED);
+    }
     straight_sync_reset();
     neutral_stop_reset();
     motor_trajectory_reset();
@@ -1544,7 +1559,12 @@ static RcFrameTrustResult rc_frame_trust_result(const int16_t ch[SBUS_NUM_CHANNE
                                                 uint8_t failsafe,
                                                 uint8_t frame_lost)
 {
-    if(failsafe || frame_lost)
+    /*
+     * frame_lost only reports an isolated missing RF frame.  The current SBUS
+     * frame remains usable; persistent loss is covered by failsafe and timeout.
+     */
+    (void)frame_lost;
+    if(failsafe)
     {
         return RC_FRAME_REJECTED;
     }
@@ -1567,10 +1587,15 @@ static RcFrameTrustResult rc_frame_trust_result(const int16_t ch[SBUS_NUM_CHANNE
     return RC_FRAME_ACCEPTED;
 }
 
-static void rc_enter_not_ready(uint32_t now)
+static void rc_enter_not_ready(uint32_t now, RcStopReason reason)
 {
     if(rc_ready || rc_not_ready_since_tick == 0U)
     {
+        if(rc_ready)
+        {
+            rc_not_ready_event_count++;
+            rc_last_stop_reason = (uint8_t)reason;
+        }
         rc_not_ready_since_tick = now;
         rc_zero_command_sent = 0;
         rc_lift_stop_sent = 0;
@@ -1598,6 +1623,7 @@ static void rc_accept_trustworthy_frame(const int16_t ch[SBUS_NUM_CHANNELS], uin
     if(rc_valid_frame_count >= RC_REQUIRED_VALID_FRAMES && !rc_ready)
     {
         rc_ready = 1;
+        rc_recovery_count++;
         rc_not_ready_since_tick = 0;
         rc_zero_command_sent = 0;
         rc_lift_stop_sent = 0;
@@ -1786,10 +1812,12 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
 
 static void telemetry_send(void)
 {
-    char line[TELEMETRY_LINE_MAX];
+    static char line[TELEMETRY_LINE_MAX];
+    uint32_t now = HAL_GetTick();
+    uint32_t rc_age_ms = rc_last_valid_frame_tick == 0U ? 0U : (now - rc_last_valid_frame_tick);
     int len = snprintf(line, sizeof(line),
-                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"rc_ready\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d}\r\n",
-                       (unsigned long)HAL_GetTick(),
+                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d}\r\n",
+                       (unsigned long)now,
                        left,
                        right,
                        motor_last_left_cmd,
@@ -1811,6 +1839,11 @@ static void telemetry_send(void)
                        straight_sync.trim,
                        (long)(straight_sync.filtered_error * 100.0f),
                        (unsigned int)rc_ready,
+                       (unsigned long)rc_age_ms,
+                       (unsigned long)rc_frame_lost_count,
+                       (unsigned long)rc_not_ready_event_count,
+                       (unsigned long)rc_recovery_count,
+                       (unsigned int)rc_last_stop_reason,
                        rc_lcd_debug.ch3,
                        rc_lcd_debug.ch4,
                        rc_lcd_debug.ch6,
@@ -1913,10 +1946,17 @@ int main(void)
 #endif
 		
 		uint32_t now = HAL_GetTick();
-		SBUS_TimeoutCheck();
+		/*
+		 * Do not let the SBUS driver's 30 ms byte watchdog override the outer
+		 * 60 ms valid-frame policy while control is healthy.
+		 */
+		if(!rc_ready || (now - rc_last_valid_frame_tick) > RC_TRUST_TIMEOUT_MS)
+		{
+			SBUS_TimeoutCheck();
+		}
 		if(sbus_failsafe)
 		{
-				rc_enter_not_ready(now);
+				rc_enter_not_ready(now, RC_STOP_REASON_FAILSAFE);
 		}
 		if(sbus_frame_ok)
 		{
@@ -1930,6 +1970,10 @@ int main(void)
 
 				int16_t ch[16] = {0};
 				SBUS_ParseChannels(local_buf, ch);
+				if(local_frame_lost)
+				{
+					rc_frame_lost_count++;
+				}
 				RcFrameTrustResult frame_result = rc_frame_trust_result(ch, local_failsafe, local_frame_lost);
 				uint8_t frame_accepted = (frame_result == RC_FRAME_ACCEPTED);
 				if(frame_accepted)
@@ -1938,7 +1982,9 @@ int main(void)
 				}
 				else if(frame_result == RC_FRAME_REJECTED)
 				{
-						rc_enter_not_ready(now);
+						rc_enter_not_ready(now,
+						                   local_failsafe ? RC_STOP_REASON_FAILSAFE :
+						                                    RC_STOP_REASON_INVALID_FRAME);
 				}
 				/* 大跳变确认期间保持上一条可信目标，不执行本帧控制。 */
 				rc_lcd_capture_frame(ch, frame_accepted, local_failsafe, local_frame_lost, now);
@@ -2034,7 +2080,7 @@ int main(void)
 		}
 		if(rc_ready && (now - rc_last_valid_frame_tick) > RC_TRUST_TIMEOUT_MS)
 		{
-			rc_enter_not_ready(now);
+			rc_enter_not_ready(now, RC_STOP_REASON_TIMEOUT);
 		}
 		pc_test_process(HAL_GetTick());
 		if(!rc_ready)
