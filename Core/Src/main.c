@@ -105,7 +105,8 @@
 #define STRAIGHT_SYNC_MAX_TRIM_RPM           2
 #define STRAIGHT_SYNC_LAUNCH_FAST_RPM         4
 #define STRAIGHT_SYNC_LAUNCH_STALLED_RPM      1
-#define STRAIGHT_SYNC_LAUNCH_TRIM_RPM         4
+#define STRAIGHT_SYNC_LAUNCH_HOLD_RPM          8
+#define STRAIGHT_SYNC_LAUNCH_MAX_TRIM_RPM     16
 #define NEUTRAL_TERMINAL_SPEED_RPM            1.0f
 #define NEUTRAL_TERMINAL_STEER_CMD            1.0f
 #define NEUTRAL_ZERO_BURST_PERIOD_MS          20U
@@ -810,6 +811,19 @@ static void motor_trajectory_reset(void)
     motor_trajectory.initialized = 0U;
 }
 
+static int16_t int16_clamp(int16_t value, int16_t minimum, int16_t maximum)
+{
+    if(value < minimum)
+    {
+        return minimum;
+    }
+    if(value > maximum)
+    {
+        return maximum;
+    }
+    return value;
+}
+
 static void neutral_stop_reset(void)
 {
     neutral_stop.active = 0U;
@@ -1220,16 +1234,25 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
         if(travel_left_rpm >= STRAIGHT_SYNC_LAUNCH_FAST_RPM &&
            travel_right_rpm <= STRAIGHT_SYNC_LAUNCH_STALLED_RPM)
         {
+            int16_t launch_trim = (int16_t)(abs(*left_cmd) -
+                                            STRAIGHT_SYNC_LAUNCH_HOLD_RPM);
             /* Left broke static friction first: only reduce the moving wheel. */
             straight_sync.filtered_error = travel_left_rpm - travel_right_rpm;
-            straight_sync.trim = STRAIGHT_SYNC_LAUNCH_TRIM_RPM;
+            straight_sync.trim = int16_clamp(launch_trim,
+                                              0,
+                                              STRAIGHT_SYNC_LAUNCH_MAX_TRIM_RPM);
         }
         else if(travel_right_rpm >= STRAIGHT_SYNC_LAUNCH_FAST_RPM &&
                 travel_left_rpm <= STRAIGHT_SYNC_LAUNCH_STALLED_RPM)
         {
+            int16_t launch_trim = (int16_t)(abs(*right_cmd) -
+                                            STRAIGHT_SYNC_LAUNCH_HOLD_RPM);
             /* Right broke static friction first: correction is symmetric. */
             straight_sync.filtered_error = travel_left_rpm - travel_right_rpm;
-            straight_sync.trim = -STRAIGHT_SYNC_LAUNCH_TRIM_RPM;
+            straight_sync.trim = (int16_t)-int16_clamp(
+                launch_trim,
+                0,
+                STRAIGHT_SYNC_LAUNCH_MAX_TRIM_RPM);
         }
         else if(travel_left_rpm >= 1.0f && travel_right_rpm >= 1.0f)
         {
