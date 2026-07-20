@@ -1044,7 +1044,7 @@ def main():
     parser.add_argument("--port", help="串口，例如 COM3")
     parser.add_argument("--duration", type=float, default=10.0, help="无界面记录时长，单位秒")
     parser.add_argument("--output-dir", help="无界面记录目录；默认使用 PC_Tools/data")
-    parser.add_argument("--test-linear", type=int, help="受限实机测试线速度，范围 -20..20 RPM")
+    parser.add_argument("--test-linear", type=int, help="受限实机测试线速度，范围 -32..32 RPM")
     parser.add_argument("--test-steer", type=int, default=0, help="受限实机测试转向量，范围 -32..32")
     parser.add_argument("--test-duration-ms", type=int, default=1200, help="受限实机测试持续时间，100..10000 ms")
     parser.add_argument("--reversal-cycles", type=int, default=0, help="自动执行前进、停稳、后退循环，范围 1..10")
