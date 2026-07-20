@@ -242,7 +242,7 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | `right_rpm` | 右轮反馈转速，单位 rpm；因右轮安装方向可能与左轮相反，符号按电机实际反馈保留。 |
 | `speed_rpm` | 固件保留的等效平均轮速，单位 rpm；当前上位机不再用该字段计算显示速度。 |
 | `left_cmd` / `right_cmd` | 最近一次发送给左右驱动器的有符号速度命令。 |
-| `caster_state` | 万向轮归正状态：`IDLE`、`BRAKE`、`CRAWL` 或 `FAILED`。 |
+| `caster_state` | 当前正常操控路径固定为 `IDLE`；会缓存旧运动目标的 `BRAKE/CRAWL` 归正流程已停用。 |
 | `traj_speed_x100` / `traj_accel_x100` | STM32 轨迹速度和加速度，放大 100 倍传输。 |
 | `pc_test_*` | 受限 USB 实机测试的目标、剩余时间和执行状态。 |
 | `sync_trim` / `sync_error_x100` | 直线左右轮同步修正量和滤波误差。 |
@@ -430,4 +430,11 @@ python PC_Tools\telemetry_monitor.py --headless --port COM3 --reversal-cycles 3 
 - USB CDC 新增受限实机测试协议：`MOVE <linear> <steer> <duration_ms>` 和 `STOP`。仅在遥控可信、已使能、摇杆回中、双轮静止时接受，线速度限制为 ±20 RPM、转向量限制为 ±32、单次最长 10 秒。
 - 任意遥控摇杆动作、急停、SBUS 失联或 watchdog 到期都会取消 USB 控制；超限指令直接拒绝。
 - 遥测周期改为 50 ms，并增加轨迹、归正状态、USB 测试、同步修正和 RC 诊断字段；`PC_Tools/telemetry_monitor.py` 支持 `--headless` 自动记录和受限实机测试。
+
+### v2.9 中位停车锁存修复版
+
+- 正常遥控和 USB 测试指令直接进入公共 20 ms S 曲线，停用会延迟释放目标的 `CASTER_ALIGN_BRAKE/CRAWL` 路径。
+- 摇杆线速度与转向同时归零后立即锁存停车请求；轨迹只能继续向零减速，任何新的非零指令可在下一个控制周期接管。
+- 公共轨迹进入 2 RPM 低速尾段后统一锁零，并在随后 300 ms 内每 20 ms 重发双轮零速，降低丢帧或两轮静摩擦差异造成的单轮残速。
+- 正常停车不复位整条公共轨迹、不切换电机使能，也不等待旧加速度衰减后才接受新操作。
 - 实机调试确认：驱动器内部参数统一后，原 8 RPM 转向测试中的启动延迟和峰值差明显下降；内部减速时间缩短后，命令归零到双轮接近零的时间由约 2.90 秒缩短到约 0.25～0.35 秒。

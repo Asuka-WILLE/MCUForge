@@ -101,6 +101,10 @@
 #define STRAIGHT_SYNC_FILTER_ALPHA           0.5f
 #define STRAIGHT_SYNC_ERROR_THRESHOLD_RPM    1.5f
 #define STRAIGHT_SYNC_MAX_TRIM_RPM           1
+#define NEUTRAL_TERMINAL_SPEED_RPM            2.0f
+#define NEUTRAL_TERMINAL_STEER_CMD            2.0f
+#define NEUTRAL_ZERO_BURST_PERIOD_MS          20U
+#define NEUTRAL_ZERO_BURST_DURATION_MS        300U
 #define RC_REQUIRED_VALID_FRAMES   3U
 #define RC_TRUST_TIMEOUT_MS        30U
 #define RC_FAILSAFE_STOP_TIMEOUT_MS 150U
@@ -227,8 +231,18 @@ typedef struct
     uint32_t last_feedback_sequence;
 } StraightSyncController;
 
+typedef struct
+{
+    uint8_t active;
+    uint8_t terminal_latched;
+    uint32_t request_tick;
+    uint32_t terminal_tick;
+    uint32_t last_zero_send_tick;
+} NeutralStopController;
+
 static PcTestControl pc_test_control={0};
 static StraightSyncController straight_sync={0};
+static NeutralStopController neutral_stop={0};
 static volatile uint8_t pc_test_rx_ready=0U;
 static volatile uint8_t pc_test_rx_length=0U;
 static uint8_t pc_test_rx_buffer[PC_TEST_RX_BUFFER_SIZE]={0};
@@ -771,6 +785,64 @@ static void motor_trajectory_reset(void)
     motor_trajectory.initialized = 0U;
 }
 
+static void neutral_stop_reset(void)
+{
+    neutral_stop.active = 0U;
+    neutral_stop.terminal_latched = 0U;
+    neutral_stop.request_tick = 0U;
+    neutral_stop.terminal_tick = 0U;
+    neutral_stop.last_zero_send_tick = 0U;
+}
+
+static void neutral_stop_update_request(int16_t requested_linear,
+                                        int16_t requested_steer,
+                                        uint32_t now)
+{
+    if(requested_linear == 0 && requested_steer == 0)
+    {
+        if(!neutral_stop.active)
+        {
+            neutral_stop.active = 1U;
+            neutral_stop.terminal_latched = 0U;
+            neutral_stop.request_tick = now;
+            neutral_stop.terminal_tick = 0U;
+            neutral_stop.last_zero_send_tick = 0U;
+        }
+    }
+    else
+    {
+        neutral_stop_reset();
+    }
+}
+
+static void neutral_stop_apply_terminal(int16_t *left_cmd,
+                                        int16_t *right_cmd,
+                                        uint32_t now)
+{
+    if(left_cmd == NULL || right_cmd == NULL || !neutral_stop.active)
+    {
+        return;
+    }
+
+    if(float_abs(motor_trajectory.linear.speed) <= NEUTRAL_TERMINAL_SPEED_RPM &&
+       float_abs(motor_trajectory.steer.speed) <= NEUTRAL_TERMINAL_STEER_CMD)
+    {
+        motor_trajectory.linear.speed = 0.0f;
+        motor_trajectory.linear.acceleration = 0.0f;
+        motor_trajectory.steer.speed = 0.0f;
+        motor_trajectory.steer.acceleration = 0.0f;
+        *left_cmd = 0;
+        *right_cmd = 0;
+
+        if(!neutral_stop.terminal_latched)
+        {
+            neutral_stop.terminal_latched = 1U;
+            neutral_stop.terminal_tick = now;
+            neutral_stop.last_zero_send_tick = 0U;
+        }
+    }
+}
+
 static void motor_trajectory_axis_update(MotorTrajectoryAxis *axis,
                                          float target_speed,
                                          float max_accel,
@@ -1216,6 +1288,7 @@ static void motor_speed_command_invalidate(void)
     motor_target_steer = 0;
     pc_test_cancel(PC_TEST_CANCELLED);
     straight_sync_reset();
+    neutral_stop_reset();
     motor_trajectory_reset();
     caster_alignment_reset();
 }
@@ -1579,13 +1652,21 @@ static void motor_speed_control_update(int16_t left_cmd, int16_t right_cmd)
 {
     uint32_t now = HAL_GetTick();
     uint8_t refresh_due = ((now - motor_speed_cmd_last_tick) >= MOTOR_COMMAND_REFRESH_MS);
+    uint8_t neutral_zero_burst_due =
+        (neutral_stop.active &&
+         neutral_stop.terminal_latched &&
+         left_cmd == 0 && right_cmd == 0 &&
+         (now - neutral_stop.terminal_tick) <= NEUTRAL_ZERO_BURST_DURATION_MS &&
+         (neutral_stop.last_zero_send_tick == 0U ||
+          (now - neutral_stop.last_zero_send_tick) >= NEUTRAL_ZERO_BURST_PERIOD_MS));
     uint8_t large_change = (abs(left_cmd - motor_last_left_cmd) >= MOTOR_COMMAND_IMMEDIATE_DELTA_RPM ||
                             abs(right_cmd - motor_last_right_cmd) >= MOTOR_COMMAND_IMMEDIATE_DELTA_RPM);
     uint8_t zero_cross = ((left_cmd == 0 && motor_last_left_cmd != 0) ||
                           (right_cmd == 0 && motor_last_right_cmd != 0) ||
                           (left_cmd != 0 && motor_last_left_cmd == 0) ||
                           (right_cmd != 0 && motor_last_right_cmd == 0));
-    uint8_t urgent_command = (!motor_speed_cmd_valid || large_change || zero_cross);
+    uint8_t urgent_command = (!motor_speed_cmd_valid || large_change || zero_cross ||
+                              neutral_zero_burst_due);
 
     /*
      * 正常运行时不要让 100 ms 的速度保活刷新打断正在等待的右轮回包。
@@ -1606,6 +1687,10 @@ static void motor_speed_control_update(int16_t left_cmd, int16_t right_cmd)
         motor_last_right_cmd = right_cmd;
         motor_speed_cmd_last_tick = HAL_GetTick();
         motor_speed_cmd_valid = 1;
+        if(neutral_zero_burst_due)
+        {
+            neutral_stop.last_zero_send_tick = motor_speed_cmd_last_tick;
+        }
     }
 }
 
@@ -1966,30 +2051,28 @@ int main(void)
 				requested_linear = pc_test_control.active ? pc_test_control.linear : motor_target_linear;
 				requested_steer = pc_test_control.active ? pc_test_control.steer : motor_target_steer;
 
-				caster_alignment_update(requested_linear,
-				                        requested_steer,
-				                        HAL_GetTick(),
-				                        &motor_conditioned_linear,
-				                        &motor_conditioned_steer);
+				/*
+				 * 操作指令直接进入公共 S 曲线。旧 CASTER_ALIGN_CRAWL 会把指令缓存数百毫秒，
+				 * 造成摇杆归中后才释放旧运动；正常操控路径禁止再进入该状态机。
+				 */
+				neutral_stop_update_request(requested_linear, requested_steer, HAL_GetTick());
+				caster_alignment.state = CASTER_ALIGN_IDLE;
+				caster_alignment.alignment_required = 0U;
+				motor_conditioned_linear = requested_linear;
+				motor_conditioned_steer = requested_steer;
 
-				/* 固定周期推进轨迹，不再依赖是否恰好收到一帧新的 SBUS 数据。 */
-				if(caster_alignment.state == CASTER_ALIGN_FAILED)
-				{
-					straight_sync_reset();
-					motor_trajectory_reset();
-					motor_speed_control_update(0, 0);
-				}
-				else
-				{
-					motor_trajectory_update(motor_conditioned_linear,
-					                        motor_conditioned_steer,
-					                        &commanded_left_rpm,
-					                        &commanded_right_rpm);
-					straight_sync_apply(&commanded_left_rpm,
-					                    &commanded_right_rpm,
-					                    HAL_GetTick());
-					motor_speed_control_update(commanded_left_rpm, -commanded_right_rpm);
-				}
+				/* 固定 20 ms 周期推进公共轨迹，线速度和转向量先平滑再混控。 */
+				motor_trajectory_update(motor_conditioned_linear,
+				                        motor_conditioned_steer,
+				                        &commanded_left_rpm,
+				                        &commanded_right_rpm);
+				neutral_stop_apply_terminal(&commanded_left_rpm,
+				                            &commanded_right_rpm,
+				                            HAL_GetTick());
+				straight_sync_apply(&commanded_left_rpm,
+				                    &commanded_right_rpm,
+				                    HAL_GetTick());
+				motor_speed_control_update(commanded_left_rpm, -commanded_right_rpm);
 		}
 /*
 		// LCD 显示
