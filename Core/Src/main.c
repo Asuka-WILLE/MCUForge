@@ -1710,6 +1710,8 @@ static void motor_speed_set_confirmed(int16_t left_cmd, int16_t right_cmd)
         right_write_fail_count++;
     }
 
+    /* The second drive requires a quiet Modbus interval after the first echo. */
+    HAL_Delay(2U);
     left_write_echo_ok = motor_write_speed_with_echo(1U, left_cmd);
     if(left_write_echo_ok)
     {
