@@ -1322,7 +1322,8 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
         travel_left_rpm = (float)travel_direction * ((float)left_speed_x10 / 10.0f);
         travel_right_rpm = (float)travel_direction * ((float)(-right_speed_x10) / 10.0f);
 
-        if(travel_left_rpm >= STRAIGHT_SYNC_LAUNCH_FAST_RPM &&
+        if(launch_window_active &&
+           travel_left_rpm >= STRAIGHT_SYNC_LAUNCH_FAST_RPM &&
            travel_right_rpm <= STRAIGHT_SYNC_LAUNCH_LAGGING_RPM &&
            (travel_left_rpm - travel_right_rpm) >=
                STRAIGHT_SYNC_LAUNCH_STALL_GAP_RPM)
@@ -1335,7 +1336,8 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
                                               0,
                                               STRAIGHT_SYNC_LAUNCH_MAX_TRIM_RPM);
         }
-        else if(travel_right_rpm >= STRAIGHT_SYNC_LAUNCH_FAST_RPM &&
+        else if(launch_window_active &&
+                travel_right_rpm >= STRAIGHT_SYNC_LAUNCH_FAST_RPM &&
                 travel_left_rpm <= STRAIGHT_SYNC_LAUNCH_LAGGING_RPM &&
                 (travel_right_rpm - travel_left_rpm) >=
                     STRAIGHT_SYNC_LAUNCH_STALL_GAP_RPM)
@@ -1348,6 +1350,20 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
                 launch_trim,
                 0,
                 STRAIGHT_SYNC_LAUNCH_MAX_TRIM_RPM);
+        }
+        else if(neutral_stop.active &&
+                travel_left_rpm >= 1.0f && travel_right_rpm <= 0.5f)
+        {
+            straight_sync.filtered_error = travel_left_rpm - travel_right_rpm;
+            straight_sync.trim = int16_clamp(
+                (int16_t)abs(*left_cmd), 0, STRAIGHT_SYNC_MAX_TRIM_RPM);
+        }
+        else if(neutral_stop.active &&
+                travel_right_rpm >= 1.0f && travel_left_rpm <= 0.5f)
+        {
+            straight_sync.filtered_error = travel_left_rpm - travel_right_rpm;
+            straight_sync.trim = (int16_t)-int16_clamp(
+                (int16_t)abs(*right_cmd), 0, STRAIGHT_SYNC_MAX_TRIM_RPM);
         }
         else if(travel_left_rpm >= 1.0f && travel_right_rpm >= 1.0f)
         {
