@@ -713,8 +713,9 @@ static void telemetry_finish_motor_query(uint8_t response_ready)
         {
             right = value;
             right_feedback_tick = HAL_GetTick();
-            wheel_feedback_sequence++;
         }
+        /* Wake synchronization after either wheel receives fresh feedback. */
+        wheel_feedback_sequence++;
         telemetry_update_cached_speed();
     }
 }
