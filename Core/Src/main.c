@@ -1699,6 +1699,10 @@ static void motor_speed_set_confirmed(int16_t left_cmd, int16_t right_cmd)
     right_cmd = (right_cmd > MAX_RPM) ? MAX_RPM :
                 (right_cmd < -MAX_RPM) ? -MAX_RPM : right_cmd;
 
+    /* Let any aborted background response leave the shared bus first. */
+    telemetry_clear_uart_rx(&huart2);
+    HAL_Delay(2U);
+
     /* Preserve the proven right-first order, but consume each 0x06 echo. */
     right_write_echo_ok = motor_write_speed_with_echo(2U, right_cmd);
     if(right_write_echo_ok)
