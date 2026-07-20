@@ -855,8 +855,15 @@ static void telemetry_abort_pending_query(void)
 static void telemetry_schedule_current_step(void)
 {
     uint32_t now = HAL_GetTick();
+    uint8_t drives_stopped =
+        (motor_last_left_cmd == 0 && motor_last_right_cmd == 0 &&
+         abs(left_speed_x10) <= 5 && abs(right_speed_x10) <= 5 &&
+         left_feedback_tick != 0U && right_feedback_tick != 0U &&
+         (now - left_feedback_tick) <= STRAIGHT_SYNC_FEEDBACK_MAX_AGE_MS &&
+         (now - right_feedback_tick) <= STRAIGHT_SYNC_FEEDBACK_MAX_AGE_MS);
 
-    if((now - telemetry_last_health_query_tick) >= TELEMETRY_HEALTH_QUERY_PERIOD_MS)
+    if(drives_stopped &&
+       (now - telemetry_last_health_query_tick) >= TELEMETRY_HEALTH_QUERY_PERIOD_MS)
     {
         telemetry_last_health_query_tick = now;
         switch(telemetry_health_query_step)
@@ -876,7 +883,8 @@ static void telemetry_schedule_current_step(void)
         }
         telemetry_health_query_step = (uint8_t)((telemetry_health_query_step + 1U) % 4U);
     }
-    else if((now - telemetry_last_diagnostic_query_tick) >=
+    else if(drives_stopped &&
+            (now - telemetry_last_diagnostic_query_tick) >=
             TELEMETRY_DIAGNOSTIC_QUERY_PERIOD_MS)
     {
         telemetry_last_diagnostic_query_tick = now;
