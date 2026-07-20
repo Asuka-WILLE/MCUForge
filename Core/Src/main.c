@@ -49,14 +49,22 @@
 #define TELEMETRY_LINE_MAX  2048U
 #define TELEMETRY_RESPONSE_LEN 23U
 #define TELEMETRY_SINGLE_RESPONSE_LEN 7U
-#define TELEMETRY_DIAGNOSTIC_RESPONSE_LEN 23U
 #define MOTOR_SPEED_FEEDBACK_REGISTER 0x500EU
-#define MOTOR_DIAGNOSTIC_REGISTER 0x5002U
-#define MOTOR_DIAGNOSTIC_REGISTER_COUNT 9U
+#define MOTOR_TORQUE_REGISTER 0x5002U
+#define MOTOR_INTERNAL_TARGET_REGISTER 0x5007U
+#define MOTOR_TORQUE_COMMAND_REGISTER 0x5008U
+#define MOTOR_RUN_MODE_REGISTER 0x5009U
+#define MOTOR_BUS_VOLTAGE_REGISTER 0x500AU
+#define MOTOR_DIAGNOSTIC_VALID_TORQUE 0x01U
+#define MOTOR_DIAGNOSTIC_VALID_TARGET 0x02U
+#define MOTOR_DIAGNOSTIC_VALID_TORQUE_COMMAND 0x04U
+#define MOTOR_DIAGNOSTIC_VALID_MODE 0x08U
+#define MOTOR_DIAGNOSTIC_VALID_VOLTAGE 0x10U
+#define MOTOR_DIAGNOSTIC_VALID_ALL 0x1FU
 #define MOTOR_FAULT_REGISTER 0x5012U
 #define MOTOR_ENABLE_REGISTER 0x2100U
 #define TELEMETRY_QUERY_PERIOD_MS 20U
-#define TELEMETRY_DIAGNOSTIC_QUERY_PERIOD_MS 100U
+#define TELEMETRY_DIAGNOSTIC_QUERY_PERIOD_MS 50U
 #define TELEMETRY_HEALTH_QUERY_PERIOD_MS 250U
 #define TELEMETRY_LIFT_QUERY_PERIOD_MS 500U
 #define TELEMETRY_MOTOR_TIMEOUT_MS 50U
@@ -220,6 +228,7 @@ static uint8_t telemetry_rx_buf[TELEMETRY_RESPONSE_LEN]={0};
 static uint8_t telemetry_rx_len=0;
 static uint8_t telemetry_rx_expected_len=TELEMETRY_SINGLE_RESPONSE_LEN;
 static uint8_t telemetry_query_slave=0;
+static uint16_t telemetry_query_register=0U;
 static uint8_t telemetry_query_step=0;
 static uint8_t telemetry_diagnostic_query_step=0;
 static uint8_t telemetry_health_query_step=0;
@@ -255,6 +264,8 @@ static uint16_t left_fault_code=0U;
 static uint16_t right_fault_code=0U;
 static uint16_t left_enable_state=0U;
 static uint16_t right_enable_state=0U;
+static uint8_t left_diagnostic_valid_mask=0U;
+static uint8_t right_diagnostic_valid_mask=0U;
 static uint32_t left_diagnostic_tick=0U;
 static uint32_t right_diagnostic_tick=0U;
 static uint32_t left_health_tick=0U;
@@ -659,32 +670,6 @@ static uint8_t telemetry_parse_i16_response(uint8_t *buf, uint8_t slave_addr, in
     return 1;
 }
 
-static uint8_t telemetry_parse_register_block(uint8_t *buf,
-                                              uint8_t slave_addr,
-                                              uint8_t register_count)
-{
-    uint8_t byte_count = (uint8_t)(register_count * 2U);
-    uint8_t response_len = (uint8_t)(byte_count + 5U);
-    uint16_t calc_crc;
-    uint16_t recv_crc;
-
-    if(buf[0] != slave_addr || buf[1] != 0x03 || buf[2] != byte_count)
-    {
-        return 0U;
-    }
-
-    calc_crc = Modbus_CRC16(buf, (uint16_t)(response_len - 2U));
-    recv_crc = ((uint16_t)buf[response_len - 1U] << 8) |
-               buf[response_len - 2U];
-    return (calc_crc == recv_crc) ? 1U : 0U;
-}
-
-static int16_t telemetry_block_i16(const uint8_t *buf, uint8_t register_index)
-{
-    uint8_t offset = (uint8_t)(3U + register_index * 2U);
-    return (int16_t)(((uint16_t)buf[offset] << 8) | buf[offset + 1U]);
-}
-
 static void telemetry_clear_uart_rx(UART_HandleTypeDef *huart)
 {
     uint8_t dummy;
@@ -768,6 +753,7 @@ static uint8_t telemetry_start_motor_query(uint8_t slave_addr,
     }
 
     telemetry_query_slave = slave_addr;
+    telemetry_query_register = reg;
     telemetry_rx_expected_len = response_len;
     telemetry_query_start_tick = HAL_GetTick();
     telemetry_query_state = next_state;
@@ -894,11 +880,29 @@ static void telemetry_schedule_current_step(void)
             TELEMETRY_DIAGNOSTIC_QUERY_PERIOD_MS)
     {
         telemetry_last_diagnostic_query_tick = now;
-        telemetry_query_state = (telemetry_diagnostic_query_step == 0U) ?
+        switch(telemetry_diagnostic_query_step / 2U)
+        {
+            case 0U:
+                telemetry_query_register = MOTOR_TORQUE_REGISTER;
+                break;
+            case 1U:
+                telemetry_query_register = MOTOR_INTERNAL_TARGET_REGISTER;
+                break;
+            case 2U:
+                telemetry_query_register = MOTOR_TORQUE_COMMAND_REGISTER;
+                break;
+            case 3U:
+                telemetry_query_register = MOTOR_RUN_MODE_REGISTER;
+                break;
+            default:
+                telemetry_query_register = MOTOR_BUS_VOLTAGE_REGISTER;
+                break;
+        }
+        telemetry_query_state = ((telemetry_diagnostic_query_step % 2U) == 0U) ?
                                 TELEMETRY_SEND_DIAGNOSTIC_LEFT :
                                 TELEMETRY_SEND_DIAGNOSTIC_RIGHT;
         telemetry_diagnostic_query_step =
-            (telemetry_diagnostic_query_step == 0U) ? 1U : 0U;
+            (uint8_t)((telemetry_diagnostic_query_step + 1U) % 10U);
     }
     else if((now - telemetry_last_lift_query_tick) >= TELEMETRY_LIFT_QUERY_PERIOD_MS)
     {
@@ -914,45 +918,71 @@ static void telemetry_schedule_current_step(void)
 
 static void telemetry_finish_diagnostic_query(uint8_t response_ready)
 {
-    int16_t torque;
-    int16_t internal_target;
-    int16_t torque_command;
-    uint16_t run_mode;
-    uint16_t bus_voltage;
-    uint32_t now;
+    int16_t value;
 
     if(!response_ready ||
-       !telemetry_parse_register_block(telemetry_rx_buf,
-                                       telemetry_query_slave,
-                                       MOTOR_DIAGNOSTIC_REGISTER_COUNT))
+       !telemetry_parse_i16_response(telemetry_rx_buf, telemetry_query_slave, &value))
     {
         return;
     }
 
-    torque = telemetry_block_i16(telemetry_rx_buf, 0U);          /* 0x5002 */
-    internal_target = telemetry_block_i16(telemetry_rx_buf, 5U); /* 0x5007 */
-    torque_command = telemetry_block_i16(telemetry_rx_buf, 6U);  /* 0x5008 */
-    run_mode = (uint16_t)telemetry_block_i16(telemetry_rx_buf, 7U); /* 0x5009 */
-    bus_voltage = (uint16_t)telemetry_block_i16(telemetry_rx_buf, 8U); /* 0x500A */
-    now = HAL_GetTick();
-
     if(telemetry_query_slave == 1U)
     {
-        left_torque_permille = torque;
-        left_internal_target_rpm = internal_target;
-        left_torque_command_permille = torque_command;
-        left_run_mode = run_mode;
-        left_bus_voltage_v = bus_voltage;
-        left_diagnostic_tick = now;
+        switch(telemetry_query_register)
+        {
+            case MOTOR_TORQUE_REGISTER:
+                left_torque_permille = value;
+                left_diagnostic_valid_mask |= MOTOR_DIAGNOSTIC_VALID_TORQUE;
+                break;
+            case MOTOR_INTERNAL_TARGET_REGISTER:
+                left_internal_target_rpm = value;
+                left_diagnostic_valid_mask |= MOTOR_DIAGNOSTIC_VALID_TARGET;
+                break;
+            case MOTOR_TORQUE_COMMAND_REGISTER:
+                left_torque_command_permille = value;
+                left_diagnostic_valid_mask |= MOTOR_DIAGNOSTIC_VALID_TORQUE_COMMAND;
+                break;
+            case MOTOR_RUN_MODE_REGISTER:
+                left_run_mode = (uint16_t)value;
+                left_diagnostic_valid_mask |= MOTOR_DIAGNOSTIC_VALID_MODE;
+                break;
+            case MOTOR_BUS_VOLTAGE_REGISTER:
+                left_bus_voltage_v = (uint16_t)value;
+                left_diagnostic_valid_mask |= MOTOR_DIAGNOSTIC_VALID_VOLTAGE;
+                break;
+            default:
+                return;
+        }
+        left_diagnostic_tick = HAL_GetTick();
     }
     else if(telemetry_query_slave == 2U)
     {
-        right_torque_permille = torque;
-        right_internal_target_rpm = internal_target;
-        right_torque_command_permille = torque_command;
-        right_run_mode = run_mode;
-        right_bus_voltage_v = bus_voltage;
-        right_diagnostic_tick = now;
+        switch(telemetry_query_register)
+        {
+            case MOTOR_TORQUE_REGISTER:
+                right_torque_permille = value;
+                right_diagnostic_valid_mask |= MOTOR_DIAGNOSTIC_VALID_TORQUE;
+                break;
+            case MOTOR_INTERNAL_TARGET_REGISTER:
+                right_internal_target_rpm = value;
+                right_diagnostic_valid_mask |= MOTOR_DIAGNOSTIC_VALID_TARGET;
+                break;
+            case MOTOR_TORQUE_COMMAND_REGISTER:
+                right_torque_command_permille = value;
+                right_diagnostic_valid_mask |= MOTOR_DIAGNOSTIC_VALID_TORQUE_COMMAND;
+                break;
+            case MOTOR_RUN_MODE_REGISTER:
+                right_run_mode = (uint16_t)value;
+                right_diagnostic_valid_mask |= MOTOR_DIAGNOSTIC_VALID_MODE;
+                break;
+            case MOTOR_BUS_VOLTAGE_REGISTER:
+                right_bus_voltage_v = (uint16_t)value;
+                right_diagnostic_valid_mask |= MOTOR_DIAGNOSTIC_VALID_VOLTAGE;
+                break;
+            default:
+                return;
+        }
+        right_diagnostic_tick = HAL_GetTick();
     }
 }
 
@@ -2241,9 +2271,9 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
             if(allow_start && (now - telemetry_control_last_tick) >= TELEMETRY_CONTROL_HOLDOFF_MS)
             {
                 if(!telemetry_start_motor_query(1U,
-                                                MOTOR_DIAGNOSTIC_REGISTER,
-                                                MOTOR_DIAGNOSTIC_REGISTER_COUNT,
-                                                TELEMETRY_DIAGNOSTIC_RESPONSE_LEN,
+                                                telemetry_query_register,
+                                                1U,
+                                                TELEMETRY_SINGLE_RESPONSE_LEN,
                                                 TELEMETRY_WAIT_DIAGNOSTIC_LEFT))
                 {
                     telemetry_query_state = TELEMETRY_QUERY_IDLE;
@@ -2265,9 +2295,9 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
             if(allow_start && (now - telemetry_control_last_tick) >= TELEMETRY_CONTROL_HOLDOFF_MS)
             {
                 if(!telemetry_start_motor_query(2U,
-                                                MOTOR_DIAGNOSTIC_REGISTER,
-                                                MOTOR_DIAGNOSTIC_REGISTER_COUNT,
-                                                TELEMETRY_DIAGNOSTIC_RESPONSE_LEN,
+                                                telemetry_query_register,
+                                                1U,
+                                                TELEMETRY_SINGLE_RESPONSE_LEN,
                                                 TELEMETRY_WAIT_DIAGNOSTIC_RIGHT))
                 {
                     telemetry_query_state = TELEMETRY_QUERY_IDLE;
@@ -2395,7 +2425,7 @@ static void telemetry_send(void)
                                   (now - straight_sync.launch_start_tick) <=
                                   STRAIGHT_SYNC_LAUNCH_WINDOW_MS);
     int len = snprintf(line, sizeof(line),
-                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_rpm_x10\":%d,\"right_rpm_x10\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"sync_launch_active\":%u,\"sync_pair_sequence\":%lu,\"sync_pair_skew_ms\":%lu,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_link_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"speed_pair_sequence\":%lu,\"left_speed_age_ms\":%lu,\"right_speed_age_ms\":%lu,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu,\"left_torque\":%d,\"right_torque\":%d,\"left_internal_target_rpm\":%d,\"right_internal_target_rpm\":%d,\"left_torque_command\":%d,\"right_torque_command\":%d,\"left_run_mode\":%u,\"right_run_mode\":%u,\"left_bus_voltage_v\":%u,\"right_bus_voltage_v\":%u,\"left_fault_code\":%u,\"right_fault_code\":%u,\"left_enable\":%u,\"right_enable\":%u,\"left_diagnostic_age_ms\":%lu,\"right_diagnostic_age_ms\":%lu,\"left_health_age_ms\":%lu,\"right_health_age_ms\":%lu}\r\n",
+                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_rpm_x10\":%d,\"right_rpm_x10\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"sync_launch_active\":%u,\"sync_pair_sequence\":%lu,\"sync_pair_skew_ms\":%lu,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_link_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"speed_pair_sequence\":%lu,\"left_speed_age_ms\":%lu,\"right_speed_age_ms\":%lu,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu,\"left_torque\":%d,\"right_torque\":%d,\"left_internal_target_rpm\":%d,\"right_internal_target_rpm\":%d,\"left_torque_command\":%d,\"right_torque_command\":%d,\"left_run_mode\":%u,\"right_run_mode\":%u,\"left_bus_voltage_v\":%u,\"right_bus_voltage_v\":%u,\"left_fault_code\":%u,\"right_fault_code\":%u,\"left_enable\":%u,\"right_enable\":%u,\"left_diagnostic_age_ms\":%lu,\"right_diagnostic_age_ms\":%lu,\"left_health_age_ms\":%lu,\"right_health_age_ms\":%lu,\"left_diagnostic_valid_mask\":%u,\"right_diagnostic_valid_mask\":%u}\r\n",
                        (unsigned long)now,
                        left,
                        right,
@@ -2461,7 +2491,9 @@ static void telemetry_send(void)
                        (unsigned long)left_diagnostic_age_ms,
                        (unsigned long)right_diagnostic_age_ms,
                        (unsigned long)left_health_age_ms,
-                       (unsigned long)right_health_age_ms);
+                       (unsigned long)right_health_age_ms,
+                       (unsigned int)left_diagnostic_valid_mask,
+                       (unsigned int)right_diagnostic_valid_mask);
 
     if(len > 0 && len < (int)sizeof(line))
     {

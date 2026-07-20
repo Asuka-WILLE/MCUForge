@@ -194,6 +194,8 @@ CSV_FIELDS = [
     "right_diagnostic_age_ms",
     "left_health_age_ms",
     "right_health_age_ms",
+    "left_diagnostic_valid_mask",
+    "right_diagnostic_valid_mask",
 ]
 
 
@@ -827,6 +829,8 @@ class TelemetryMonitor(tk.Tk):
             "right_diagnostic_age_ms": cls._optional_int(data, "right_diagnostic_age_ms"),
             "left_health_age_ms": cls._optional_int(data, "left_health_age_ms"),
             "right_health_age_ms": cls._optional_int(data, "right_health_age_ms"),
+            "left_diagnostic_valid_mask": cls._optional_int(data, "left_diagnostic_valid_mask"),
+            "right_diagnostic_valid_mask": cls._optional_int(data, "right_diagnostic_valid_mask"),
         }
 
     def _queue_log_record(self, raw_data, normalized_data):
@@ -1105,6 +1109,8 @@ def run_headless(
                         "right_diagnostic_age_ms",
                         "left_health_age_ms",
                         "right_health_age_ms",
+                        "left_diagnostic_valid_mask",
+                        "right_diagnostic_valid_mask",
                     )
                 }
 
