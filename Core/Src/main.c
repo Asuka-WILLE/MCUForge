@@ -21,7 +21,6 @@
 #include "adc.h"
 #include "dma.h"
 #include "spi.h"
-#include "tim.h"
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
@@ -79,8 +78,6 @@
 #define MOTOR_TRAJECTORY_TRACKING_GAIN_PER_S 10.0f
 #define MOTOR_TRAJECTORY_TARGET_EPSILON_RPM 0.05f
 #define MOTOR_TRAJECTORY_ACCEL_EPSILON_RPM_PER_S 0.25f
-#define MOTOR_TRAJECTORY_BENCH_TEST 0U
-#define MOTOR_TRAJECTORY_BENCH_CYCLE_MS 10000U
 
 /*
  * 速度单位是驱动器命令 RPM。先对底盘前后速度和转向量分别限加速度、
@@ -95,26 +92,6 @@
 #define MOTOR_STEER_MAX_DECEL_CMD_PER_S 160.0f
 #define MOTOR_STEER_MAX_JERK_CMD_PER_S2 1600.0f
 #define MOTOR_STEER_MAX_STOP_JERK_CMD_PER_S2 1600.0f
-#define CASTER_ALIGN_CRAWL_RPM             8
-#define CASTER_ALIGN_MIN_BOOST_REQUEST_RPM 4
-#define CASTER_ALIGN_MOVING_DURATION_MS    500U
-#define CASTER_ALIGN_MATCH_ERROR_RPM       1
-#define CASTER_ALIGN_MATCH_DURATION_MS     200U
-#define CASTER_ALIGN_MAX_DURATION_MS       2200U
-#define CASTER_ALIGN_TRIGGER_STEER_CMD     8
-#define CASTER_ALIGN_STRAIGHT_STEER_CMD    4
-#define CASTER_ALIGN_REST_SPEED_RPM        0.75f
-#define CASTER_ALIGN_REST_ACCEL_RPM_PER_S  2.0f
-#define CASTER_ALIGN_COUNTER_STEER_CMD      0
-#define CASTER_ALIGN_FORWARD_LAUNCH_BIAS_CMD        4
-#define CASTER_ALIGN_FORWARD_PRELOAD_BIAS_CMD       8
-#define CASTER_ALIGN_FORWARD_PRELOAD_DURATION_MS  250U
-#define PC_TEST_MAX_LINEAR_RPM              32
-#define PC_TEST_MAX_STEER_CMD               32
-#define PC_TEST_MIN_DURATION_MS             100U
-#define PC_TEST_MAX_DURATION_MS             10000U
-#define PC_TEST_REST_SPEED_RPM              2
-#define PC_TEST_RX_BUFFER_SIZE              64U
 #define STRAIGHT_SYNC_MIN_COMMAND_RPM        5
 #define STRAIGHT_SYNC_FEEDBACK_MAX_AGE_MS    150U
 #define STRAIGHT_SYNC_PAIR_MAX_SKEW_MS        80U
@@ -189,19 +166,11 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN 0 */
 uint16_t adc_val[1];
 
-volatile int16_t speed, steer;
-volatile int16_t left_rpm, right_rpm;
-
-volatile uint8_t modbus_read_flag = 0;  // 定时读取标志
-volatile uint8_t motor_read_flag = 0;  // 定时器读速度标志
 volatile uint8_t en_flag=0;
 
 uint8_t uart2_rx_buf[7] = {0};  // 接收缓存
 uint8_t uart2_rx_done = 0;     // 接收完成标志
 int16_t motor_real_speed = 0;               // 左电机速度（全局）
-
-uint16_t test1=0;
-uint16_t test2=0;
 
 extern volatile uint8_t sbus_buf[SBUS_FRAME_LEN];
 extern volatile uint8_t sbus_frame_ok;
@@ -271,26 +240,6 @@ static uint32_t right_diagnostic_tick=0U;
 static uint32_t left_health_tick=0U;
 static uint32_t right_health_tick=0U;
 
-typedef enum
-{
-    PC_TEST_IDLE = 0,
-    PC_TEST_ACTIVE,
-    PC_TEST_DONE,
-    PC_TEST_STOPPED,
-    PC_TEST_REJECTED,
-    PC_TEST_CANCELLED,
-    PC_TEST_BAD_COMMAND
-} PcTestStatus;
-
-typedef struct
-{
-    uint8_t active;
-    int16_t linear;
-    int16_t steer;
-    uint32_t stop_tick;
-    PcTestStatus status;
-} PcTestControl;
-
 typedef struct
 {
     float filtered_error;
@@ -313,12 +262,8 @@ typedef struct
     uint32_t last_zero_send_tick;
 } NeutralStopController;
 
-static PcTestControl pc_test_control={0};
 static StraightSyncController straight_sync={0};
 static NeutralStopController neutral_stop={0};
-static volatile uint8_t pc_test_rx_ready=0U;
-static volatile uint8_t pc_test_rx_length=0U;
-static uint8_t pc_test_rx_buffer[PC_TEST_RX_BUFFER_SIZE]={0};
 
 typedef struct
 {
@@ -334,32 +279,7 @@ typedef struct
     uint8_t initialized;
 } MotorTrajectory;
 
-typedef enum
-{
-    CASTER_ALIGN_IDLE = 0,
-    CASTER_ALIGN_BRAKE,
-    CASTER_ALIGN_CRAWL,
-    CASTER_ALIGN_FAILED
-} CasterAlignState;
-
-typedef struct
-{
-    CasterAlignState state;
-    uint8_t alignment_required;
-    int8_t last_direction;
-    int8_t last_turn_sign;
-    int16_t previous_linear_request;
-    int16_t previous_steer_request;
-    uint32_t crawl_start_tick;
-    uint32_t crawl_motion_start_tick;
-    uint32_t crawl_match_start_tick;
-} CasterAlignmentController;
-
 static MotorTrajectory motor_trajectory={0};
-static CasterAlignmentController caster_alignment={
-    .state = CASTER_ALIGN_IDLE,
-    .alignment_required = 1U
-};
 static int16_t motor_conditioned_linear=0;
 static int16_t motor_conditioned_steer=0;
 static uint8_t rc_ready=0;
@@ -439,199 +359,8 @@ typedef enum
 
 static TelemetryQueryState telemetry_query_state=TELEMETRY_QUERY_IDLE;
 
-static const char *pc_test_status_text(void)
-{
-    switch(pc_test_control.status)
-    {
-        case PC_TEST_ACTIVE:
-            return "ACTIVE";
-        case PC_TEST_DONE:
-            return "DONE";
-        case PC_TEST_STOPPED:
-            return "STOPPED";
-        case PC_TEST_REJECTED:
-            return "REJECTED";
-        case PC_TEST_CANCELLED:
-            return "CANCELLED";
-        case PC_TEST_BAD_COMMAND:
-            return "BAD_COMMAND";
-        default:
-            return "IDLE";
-    }
-}
-
-void PC_TestCommand_Receive(const uint8_t *data, uint32_t length)
-{
-    uint32_t index;
-
-    if(data == NULL || length == 0U)
-    {
-        return;
-    }
-
-    for(index = 0U; index < length; index++)
-    {
-        uint8_t byte = data[index];
-
-        if(pc_test_rx_ready)
-        {
-            break;
-        }
-        if(byte == '\r')
-        {
-            continue;
-        }
-        if(byte == '\n')
-        {
-            if(pc_test_rx_length > 0U)
-            {
-                pc_test_rx_buffer[pc_test_rx_length] = '\0';
-                pc_test_rx_ready = 1U;
-            }
-            break;
-        }
-        if(pc_test_rx_length < (PC_TEST_RX_BUFFER_SIZE - 1U))
-        {
-            pc_test_rx_buffer[pc_test_rx_length++] = byte;
-        }
-        else
-        {
-            pc_test_rx_length = 0U;
-            pc_test_control.status = PC_TEST_BAD_COMMAND;
-        }
-    }
-}
-
-static void pc_test_cancel(PcTestStatus status)
-{
-    pc_test_control.active = 0U;
-    pc_test_control.linear = 0;
-    pc_test_control.steer = 0;
-    pc_test_control.stop_tick = 0U;
-    pc_test_control.status = status;
-}
-
-static uint8_t pc_test_take_command(char *command, uint32_t command_size)
-{
-    uint8_t length;
-
-    if(!pc_test_rx_ready || command == NULL || command_size == 0U)
-    {
-        return 0U;
-    }
-
-    __disable_irq();
-    length = pc_test_rx_length;
-    if(length >= command_size)
-    {
-        length = (uint8_t)(command_size - 1U);
-    }
-    memcpy(command, pc_test_rx_buffer, length);
-    command[length] = '\0';
-    pc_test_rx_length = 0U;
-    pc_test_rx_ready = 0U;
-    __enable_irq();
-    return 1U;
-}
-
-static uint8_t pc_test_interlocks_ready(void)
-{
-    return (rc_ready &&
-            en_flag &&
-            !emergency_stop &&
-            !sbus_failsafe &&
-            motor_target_linear == 0 &&
-            motor_target_steer == 0 &&
-            abs(left) <= PC_TEST_REST_SPEED_RPM &&
-            abs(right) <= PC_TEST_REST_SPEED_RPM);
-}
-
-static void pc_test_process(uint32_t now)
-{
-    char command[PC_TEST_RX_BUFFER_SIZE];
-
-    if(pc_test_take_command(command, sizeof(command)))
-    {
-        int linear;
-        int steer;
-        unsigned long duration_ms;
-        char extra;
-
-        if(strcmp(command, "STOP") == 0)
-        {
-            pc_test_cancel(PC_TEST_STOPPED);
-        }
-        else if(sscanf(command, "MOVE %d %d %lu %c",
-                       &linear, &steer, &duration_ms, &extra) == 3)
-        {
-            uint8_t values_valid = (abs(linear) <= PC_TEST_MAX_LINEAR_RPM &&
-                                    abs(steer) <= PC_TEST_MAX_STEER_CMD &&
-                                    (linear != 0 || steer != 0) &&
-                                    duration_ms >= PC_TEST_MIN_DURATION_MS &&
-                                    duration_ms <= PC_TEST_MAX_DURATION_MS);
-
-            if(values_valid && pc_test_interlocks_ready())
-            {
-                pc_test_control.active = 1U;
-                pc_test_control.linear = (int16_t)linear;
-                pc_test_control.steer = (int16_t)steer;
-                pc_test_control.stop_tick = now + (uint32_t)duration_ms;
-                pc_test_control.status = PC_TEST_ACTIVE;
-            }
-            else
-            {
-                pc_test_cancel(PC_TEST_REJECTED);
-            }
-        }
-        else
-        {
-            pc_test_cancel(PC_TEST_BAD_COMMAND);
-        }
-    }
-
-    if(pc_test_control.active)
-    {
-        if(!rc_ready || !en_flag || emergency_stop || sbus_failsafe ||
-           motor_target_linear != 0 || motor_target_steer != 0)
-        {
-            pc_test_cancel(PC_TEST_CANCELLED);
-        }
-        else if((int32_t)(now - pc_test_control.stop_tick) >= 0)
-        {
-            pc_test_cancel(PC_TEST_DONE);
-        }
-    }
-}
-
-static uint32_t pc_test_remaining_ms(uint32_t now)
-{
-    if(!pc_test_control.active || (int32_t)(pc_test_control.stop_tick - now) <= 0)
-    {
-        return 0U;
-    }
-    return pc_test_control.stop_tick - now;
-}
-
-static const char *caster_alignment_state_text(void)
-{
-    switch(caster_alignment.state)
-    {
-        case CASTER_ALIGN_BRAKE:
-            return "BRAKE";
-        case CASTER_ALIGN_CRAWL:
-            return "CRAWL";
-        case CASTER_ALIGN_FAILED:
-            return "FAILED";
-        default:
-            return "IDLE";
-    }
-}
-
 static const char *telemetry_state_text(void)
 {
-#if MOTOR_TRAJECTORY_BENCH_TEST
-    return "BENCH";
-#else
     if(telemetry_failsafe)
     {
         return "FAILSAFE";
@@ -644,12 +373,7 @@ static const char *telemetry_state_text(void)
     {
         return "DISABLED";
     }
-    if(caster_alignment.state != CASTER_ALIGN_IDLE)
-    {
-        return "ALIGN";
-    }
     return "RUN";
-#endif
 }
 
 static uint8_t telemetry_parse_i16_response(uint8_t *buf, uint8_t slave_addr, int16_t *value)
@@ -1238,219 +962,6 @@ static void motor_trajectory_update(int16_t target_linear,
     *right_rpm = smoothed_linear - smoothed_steer / 4;
 }
 
-static int8_t caster_sign_i16(int16_t value)
-{
-    if(value > 0)
-    {
-        return 1;
-    }
-    if(value < 0)
-    {
-        return -1;
-    }
-    return 0;
-}
-
-static void caster_alignment_reset(void)
-{
-    caster_alignment.state = CASTER_ALIGN_IDLE;
-    caster_alignment.alignment_required = 1U;
-    caster_alignment.last_direction = 0;
-    caster_alignment.last_turn_sign = 0;
-    caster_alignment.previous_linear_request = 0;
-    caster_alignment.previous_steer_request = 0;
-    caster_alignment.crawl_start_tick = 0U;
-    caster_alignment.crawl_motion_start_tick = 0U;
-    caster_alignment.crawl_match_start_tick = 0U;
-    motor_conditioned_linear = 0;
-    motor_conditioned_steer = 0;
-}
-
-static void caster_alignment_update(int16_t requested_linear,
-                                    int16_t requested_steer,
-                                    uint32_t now,
-                                    int16_t *conditioned_linear,
-                                    int16_t *conditioned_steer)
-{
-    int8_t requested_direction = caster_sign_i16(requested_linear);
-    uint8_t wants_straight = (abs(requested_steer) <= CASTER_ALIGN_STRAIGHT_STEER_CMD);
-    uint8_t direction_changed = (requested_direction != 0 &&
-                                 caster_alignment.last_direction != 0 &&
-                                 requested_direction != caster_alignment.last_direction);
-    uint8_t returned_from_turn = (wants_straight &&
-                                  abs(caster_alignment.previous_steer_request) >= CASTER_ALIGN_TRIGGER_STEER_CMD);
-
-    if(abs(requested_steer) >= CASTER_ALIGN_TRIGGER_STEER_CMD)
-    {
-        caster_alignment.alignment_required = 1U;
-        caster_alignment.last_turn_sign = caster_sign_i16(requested_steer);
-    }
-    if(direction_changed || returned_from_turn)
-    {
-        caster_alignment.alignment_required = 1U;
-    }
-
-    if(requested_direction == 0)
-    {
-        caster_alignment.state = CASTER_ALIGN_IDLE;
-        *conditioned_linear = 0;
-        *conditioned_steer = requested_steer;
-    }
-    else if(!wants_straight)
-    {
-        /* Operator steering always overrides the automatic straight-line alignment. */
-        caster_alignment.state = CASTER_ALIGN_IDLE;
-        *conditioned_linear = requested_linear;
-        *conditioned_steer = requested_steer;
-    }
-    else
-    {
-        if(caster_alignment.state == CASTER_ALIGN_IDLE &&
-           caster_alignment.alignment_required)
-        {
-            caster_alignment.state = CASTER_ALIGN_BRAKE;
-        }
-
-        if(caster_alignment.state == CASTER_ALIGN_BRAKE)
-        {
-            *conditioned_linear = 0;
-            *conditioned_steer = 0;
-
-            if(float_abs(motor_trajectory.linear.speed) <= CASTER_ALIGN_REST_SPEED_RPM &&
-               float_abs(motor_trajectory.steer.speed) <= CASTER_ALIGN_REST_SPEED_RPM &&
-               float_abs(motor_trajectory.linear.acceleration) <= CASTER_ALIGN_REST_ACCEL_RPM_PER_S &&
-               float_abs(motor_trajectory.steer.acceleration) <= CASTER_ALIGN_REST_ACCEL_RPM_PER_S)
-            {
-                caster_alignment.state = CASTER_ALIGN_CRAWL;
-                caster_alignment.crawl_start_tick = now;
-                caster_alignment.crawl_motion_start_tick = 0U;
-                caster_alignment.crawl_match_start_tick = 0U;
-            }
-        }
-
-        if(caster_alignment.state == CASTER_ALIGN_CRAWL)
-        {
-            int16_t crawl_linear = (int16_t)(requested_direction * CASTER_ALIGN_CRAWL_RPM);
-            int16_t left_direction_speed;
-            int16_t right_direction_speed;
-            uint8_t left_moving_in_direction;
-            uint8_t right_moving_in_direction;
-            uint8_t wheel_speeds_matched;
-            uint8_t moving_duration_complete;
-            uint8_t crawl_timed_out;
-
-            if(abs(requested_linear) < CASTER_ALIGN_MIN_BOOST_REQUEST_RPM)
-            {
-                crawl_linear = requested_linear;
-            }
-
-            left_direction_speed = (int16_t)(requested_direction * left);
-            right_direction_speed = (int16_t)(requested_direction * -right);
-
-            *conditioned_linear = crawl_linear;
-            if(requested_direction > 0 &&
-               abs(crawl_linear) >= CASTER_ALIGN_CRAWL_RPM &&
-               (caster_alignment.crawl_motion_start_tick == 0U ||
-                left_direction_speed >
-                (right_direction_speed + CASTER_ALIGN_MATCH_ERROR_RPM)))
-            {
-                int16_t forward_bias_cmd =
-                    ((now - caster_alignment.crawl_start_tick) <
-                     CASTER_ALIGN_FORWARD_PRELOAD_DURATION_MS) ?
-                    CASTER_ALIGN_FORWARD_PRELOAD_BIAS_CMD :
-                    CASTER_ALIGN_FORWARD_LAUNCH_BIAS_CMD;
-
-                /* Forward breakaway: hold back the early left wheel and help the late right wheel. */
-                *conditioned_steer = -forward_bias_cmd;
-            }
-            else if(abs(crawl_linear) >= CASTER_ALIGN_CRAWL_RPM &&
-               caster_alignment.last_turn_sign != 0)
-            {
-                *conditioned_steer = (int16_t)(-caster_alignment.last_turn_sign *
-                                               CASTER_ALIGN_COUNTER_STEER_CMD);
-            }
-            else
-            {
-                *conditioned_steer = 0;
-            }
-
-            left_moving_in_direction = (requested_direction > 0) ?
-                                       (left >= 1) : (left <= -1);
-            right_moving_in_direction = (requested_direction > 0) ?
-                                        (right <= -1) : (right >= 1);
-            if(caster_alignment.crawl_motion_start_tick == 0U &&
-               left_moving_in_direction && right_moving_in_direction)
-            {
-                caster_alignment.crawl_motion_start_tick = now;
-            }
-
-            wheel_speeds_matched = (left_moving_in_direction &&
-                                    right_moving_in_direction &&
-                                    abs(left_direction_speed - right_direction_speed) <=
-                                    CASTER_ALIGN_MATCH_ERROR_RPM);
-            if(wheel_speeds_matched)
-            {
-                if(caster_alignment.crawl_match_start_tick == 0U)
-                {
-                    caster_alignment.crawl_match_start_tick = now;
-                }
-            }
-            else
-            {
-                caster_alignment.crawl_match_start_tick = 0U;
-            }
-
-            moving_duration_complete = (caster_alignment.crawl_motion_start_tick != 0U &&
-                                        (now - caster_alignment.crawl_motion_start_tick) >=
-                                        CASTER_ALIGN_MOVING_DURATION_MS &&
-                                        caster_alignment.crawl_match_start_tick != 0U &&
-                                        (now - caster_alignment.crawl_match_start_tick) >=
-                                        CASTER_ALIGN_MATCH_DURATION_MS);
-            crawl_timed_out = ((now - caster_alignment.crawl_start_tick) >=
-                               CASTER_ALIGN_MAX_DURATION_MS);
-
-            if(moving_duration_complete)
-            {
-                caster_alignment.state = CASTER_ALIGN_IDLE;
-                caster_alignment.alignment_required = 0U;
-                caster_alignment.last_turn_sign = 0;
-                caster_alignment.crawl_motion_start_tick = 0U;
-                caster_alignment.crawl_match_start_tick = 0U;
-                *conditioned_linear = requested_linear;
-                *conditioned_steer = requested_steer;
-            }
-            else if(crawl_timed_out)
-            {
-                caster_alignment.state = CASTER_ALIGN_FAILED;
-                caster_alignment.alignment_required = 1U;
-                caster_alignment.crawl_motion_start_tick = 0U;
-                caster_alignment.crawl_match_start_tick = 0U;
-                *conditioned_linear = 0;
-                *conditioned_steer = 0;
-            }
-        }
-        else if(caster_alignment.state == CASTER_ALIGN_IDLE)
-        {
-            *conditioned_linear = requested_linear;
-            *conditioned_steer = requested_steer;
-        }
-        else if(caster_alignment.state == CASTER_ALIGN_FAILED)
-        {
-            *conditioned_linear = 0;
-            *conditioned_steer = 0;
-        }
-    }
-
-    if(requested_direction != 0)
-    {
-        caster_alignment.last_direction = requested_direction;
-    }
-    caster_alignment.previous_linear_request = requested_linear;
-    caster_alignment.previous_steer_request = requested_steer;
-    motor_conditioned_linear = *conditioned_linear;
-    motor_conditioned_steer = *conditioned_steer;
-}
-
 static void straight_sync_reset(void)
 {
     straight_sync.filtered_error = 0.0f;
@@ -1481,8 +992,7 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
 
     minimum_command_rpm = neutral_stop.active ? 1 : STRAIGHT_SYNC_MIN_COMMAND_RPM;
     minimum_remaining_rpm = neutral_stop.active ? 0 : 1;
-    straight_command = (caster_alignment.state == CASTER_ALIGN_IDLE &&
-                        motor_conditioned_steer == 0 &&
+    straight_command = (motor_conditioned_steer == 0 &&
                         abs(*left_cmd) >= minimum_command_rpm &&
                         abs(*right_cmd) >= minimum_command_rpm &&
                         ((*left_cmd > 0 && *right_cmd > 0) ||
@@ -1652,79 +1162,16 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
     }
 }
 
-#if MOTOR_TRAJECTORY_BENCH_TEST
-static void motor_trajectory_bench_test_update(void)
-{
-    uint32_t phase_ms = HAL_GetTick() % MOTOR_TRAJECTORY_BENCH_CYCLE_MS;
-    int16_t commanded_left_rpm;
-    int16_t commanded_right_rpm;
-
-    if(phase_ms < 500U)
-    {
-        motor_target_linear = 0;
-        motor_target_steer = 0;
-    }
-    else if(phase_ms < 2500U)
-    {
-        motor_target_linear = 30;
-        motor_target_steer = 0;
-    }
-    else if(phase_ms < 3500U)
-    {
-        motor_target_linear = 0;
-        motor_target_steer = 0;
-    }
-    else if(phase_ms < 4500U)
-    {
-        motor_target_linear = 0;
-        motor_target_steer = 20;
-    }
-    else if(phase_ms < 7000U)
-    {
-        motor_target_linear = 30;
-        motor_target_steer = 0;
-    }
-    else if(phase_ms < 9000U)
-    {
-        motor_target_linear = -20;
-        motor_target_steer = 0;
-    }
-    else
-    {
-        motor_target_linear = 0;
-        motor_target_steer = 0;
-    }
-
-    caster_alignment_update(motor_target_linear,
-                            motor_target_steer,
-                            HAL_GetTick(),
-                            &motor_conditioned_linear,
-                            &motor_conditioned_steer);
-    motor_trajectory_update(motor_conditioned_linear,
-                            motor_conditioned_steer,
-                            &commanded_left_rpm,
-                            &commanded_right_rpm);
-
-    /* Bench mode exposes the trajectory but never calls speed_set(). */
-    motor_last_left_cmd = commanded_left_rpm;
-    motor_last_right_cmd = -commanded_right_rpm;
-    motor_speed_cmd_valid = 2U;
-}
-#endif
-
 static void motor_speed_command_invalidate(void)
 {
     motor_speed_cmd_valid = 0;
     motor_target_linear = 0;
     motor_target_steer = 0;
-    if(pc_test_control.active)
-    {
-        pc_test_cancel(PC_TEST_CANCELLED);
-    }
+    motor_conditioned_linear = 0;
+    motor_conditioned_steer = 0;
     straight_sync_reset();
     neutral_stop_reset();
     motor_trajectory_reset();
-    caster_alignment_reset();
 }
 
 static int16_t rc_desired_speed_from_ch3(int16_t ch3)
@@ -2433,7 +1880,7 @@ static void telemetry_send(void)
                                   (now - straight_sync.launch_start_tick) <=
                                   STRAIGHT_SYNC_LAUNCH_WINDOW_MS);
     int len = snprintf(line, sizeof(line),
-                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_rpm_x10\":%d,\"right_rpm_x10\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"sync_launch_active\":%u,\"sync_pair_sequence\":%lu,\"sync_pair_skew_ms\":%lu,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_link_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"speed_pair_sequence\":%lu,\"left_speed_age_ms\":%lu,\"right_speed_age_ms\":%lu,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu,\"left_torque\":%d,\"right_torque\":%d,\"left_internal_target_rpm\":%d,\"right_internal_target_rpm\":%d,\"left_torque_command\":%d,\"right_torque_command\":%d,\"left_run_mode\":%u,\"right_run_mode\":%u,\"left_bus_voltage_v\":%u,\"right_bus_voltage_v\":%u,\"left_fault_code\":%u,\"right_fault_code\":%u,\"left_enable\":%u,\"right_enable\":%u,\"left_diagnostic_age_ms\":%lu,\"right_diagnostic_age_ms\":%lu,\"left_health_age_ms\":%lu,\"right_health_age_ms\":%lu,\"left_diagnostic_valid_mask\":%u,\"right_diagnostic_valid_mask\":%u}\r\n",
+                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_rpm_x10\":%d,\"right_rpm_x10\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"sync_trim\":%d,\"sync_error_x100\":%ld,\"sync_launch_active\":%u,\"sync_pair_sequence\":%lu,\"sync_pair_skew_ms\":%lu,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_link_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"speed_pair_sequence\":%lu,\"left_speed_age_ms\":%lu,\"right_speed_age_ms\":%lu,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu,\"left_torque\":%d,\"right_torque\":%d,\"left_internal_target_rpm\":%d,\"right_internal_target_rpm\":%d,\"left_torque_command\":%d,\"right_torque_command\":%d,\"left_run_mode\":%u,\"right_run_mode\":%u,\"left_bus_voltage_v\":%u,\"right_bus_voltage_v\":%u,\"left_fault_code\":%u,\"right_fault_code\":%u,\"left_enable\":%u,\"right_enable\":%u,\"left_diagnostic_age_ms\":%lu,\"right_diagnostic_age_ms\":%lu,\"left_health_age_ms\":%lu,\"right_health_age_ms\":%lu,\"left_diagnostic_valid_mask\":%u,\"right_diagnostic_valid_mask\":%u}\r\n",
                        (unsigned long)now,
                        left,
                        right,
@@ -2446,15 +1893,9 @@ static void telemetry_send(void)
                        motor_target_steer,
                        motor_conditioned_linear,
                        motor_conditioned_steer,
-                       caster_alignment_state_text(),
                        (unsigned long)motor_trajectory.last_update_tick,
                        (long)(motor_trajectory.linear.speed * 100.0f),
                        (long)(motor_trajectory.linear.acceleration * 100.0f),
-                       (unsigned int)pc_test_control.active,
-                       pc_test_control.linear,
-                       pc_test_control.steer,
-                       (unsigned long)pc_test_remaining_ms(HAL_GetTick()),
-                       pc_test_status_text(),
                        straight_sync.trim,
                        (long)(straight_sync.filtered_error * 100.0f),
                        (unsigned int)sync_launch_active,
@@ -2537,7 +1978,6 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-	char buf[64];
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -2562,7 +2002,6 @@ int main(void)
   MX_USART2_UART_Init();
   MX_SPI1_Init();
   MX_ADC1_Init();
-  MX_TIM2_Init();
   MX_UART5_Init();
   MX_USART1_UART_Init();
   MX_USART3_UART_Init();
@@ -2575,12 +2014,8 @@ int main(void)
 	rc_lcd_init_screen();
 	HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_val,1);	// 读取ADC按键键值
-	HAL_TIM_Base_Start_IT(&htim2);
 	lift_stop();
 	current_lift_state = LIFT_STOP;
-  //	change_station();  //手动切换站号
-	//	motor_start_init();  //手动使能
-	//speed_set(10, 10);   // 左电机 10rpm，右电机 10rpm
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -2590,12 +2025,6 @@ int main(void)
 		
 		telemetry_process_poll_only();
 
-#if MOTOR_TRAJECTORY_BENCH_TEST
-		motor_trajectory_bench_test_update();
-		telemetry_process();
-		continue;
-#endif
-		
 		uint32_t now = HAL_GetTick();
 		/*
 		 * Do not let the SBUS driver's 30 ms byte watchdog override the outer
@@ -2645,20 +2074,6 @@ int main(void)
 				rc_lcd_capture_frame(ch, frame_accepted, local_failsafe, local_frame_lost, now);
 				telemetry_failsafe = !rc_ready;
 				
-/*
-				static uint8_t debug_counter = 0;
-				if(debug_counter++ >= 0)
-				{
-						sprintf(buf, "CH3:%4d | CH4:%4d | CH6:%4d | CH8:%4d\r\n", 
-										ch[2], ch[3], ch[5], ch[7]);
-						HAL_UART_Transmit(&huart1, (uint8_t*)buf, strlen(buf), 100);
-						debug_counter = 0;
-				}
-*/
-				//		}  //这个 } 复原的时候要删掉
-
-			
-
 				if(rc_ready && frame_accepted)
 				{
 						// ===================== 第一步：急停 / 使能（只设标志！） =====================
@@ -2737,7 +2152,6 @@ int main(void)
 		{
 			rc_enter_not_ready(now, RC_STOP_REASON_TIMEOUT);
 		}
-		pc_test_process(HAL_GetTick());
 		if(!rc_ready)
 		{
 				rc_safety_stop_update(HAL_GetTick());
@@ -2749,16 +2163,11 @@ int main(void)
 				int16_t requested_linear;
 				int16_t requested_steer;
 
-				requested_linear = pc_test_control.active ? pc_test_control.linear : motor_target_linear;
-				requested_steer = pc_test_control.active ? pc_test_control.steer : motor_target_steer;
+				requested_linear = motor_target_linear;
+				requested_steer = motor_target_steer;
 
-				/*
-				 * 操作指令直接进入公共 S 曲线。旧 CASTER_ALIGN_CRAWL 会把指令缓存数百毫秒，
-				 * 造成摇杆归中后才释放旧运动；正常操控路径禁止再进入该状态机。
-				 */
+				/* 操作指令直接进入公共 S 曲线，新的非零指令可立即接管。 */
 				neutral_stop_update_request(requested_linear, requested_steer, HAL_GetTick());
-				caster_alignment.state = CASTER_ALIGN_IDLE;
-				caster_alignment.alignment_required = 0U;
 				motor_conditioned_linear = requested_linear;
 				motor_conditioned_steer = requested_steer;
 
@@ -2775,15 +2184,6 @@ int main(void)
 				                    HAL_GetTick());
 				motor_speed_control_update(commanded_left_rpm, -commanded_right_rpm);
 		}
-/*
-		// LCD 显示
-		left  = motor_read_speed(1);
-		right = motor_read_speed(2);
-		LCD_ShowString(40, 80, (uint8_t*)"Left:         RPM", BLUE, WHITE, 24, 0);
-		LCD_ShowString(40,130, (uint8_t*)"Right:        RPM", BLUE, WHITE, 24, 0);
-		LCD_ShowIntNum(115,130,right,4,RED,WHITE,24);
-		LCD_ShowIntNum(115,80,left,4,RED,WHITE,24); 
-*/		
 		telemetry_failsafe = (!rc_ready || sbus_failsafe);
 		rc_lcd_process(HAL_GetTick());
 		telemetry_process();

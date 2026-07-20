@@ -21,7 +21,6 @@
 #include "tim.h"
 
 /* USER CODE BEGIN 0 */
-extern volatile uint8_t motor_read_flag;
 /* USER CODE END 0 */
 
 TIM_HandleTypeDef htim2;
@@ -107,12 +106,4 @@ void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef* tim_baseHandle)
 }
 
 /* USER CODE BEGIN 1 */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-    if(htim->Instance == TIM2)
-    {
-        motor_read_flag = 1;
-    }
-}
 /* USER CODE END 1 */
-
