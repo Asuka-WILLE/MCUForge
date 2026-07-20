@@ -100,7 +100,10 @@
 #define STRAIGHT_SYNC_FEEDBACK_MAX_AGE_MS    400U
 #define STRAIGHT_SYNC_FILTER_ALPHA           0.5f
 #define STRAIGHT_SYNC_ERROR_THRESHOLD_RPM    1.5f
-#define STRAIGHT_SYNC_MAX_TRIM_RPM           1
+#define STRAIGHT_SYNC_MAX_TRIM_RPM           2
+#define STRAIGHT_SYNC_LAUNCH_FAST_RPM         4
+#define STRAIGHT_SYNC_LAUNCH_STALLED_RPM      1
+#define STRAIGHT_SYNC_LAUNCH_TRIM_RPM         4
 #define NEUTRAL_TERMINAL_SPEED_RPM            1.0f
 #define NEUTRAL_TERMINAL_STEER_CMD            1.0f
 #define NEUTRAL_ZERO_BURST_PERIOD_MS          20U
@@ -1170,6 +1173,7 @@ static void straight_sync_reset(void)
 static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t now)
 {
     uint8_t straight_running;
+    int8_t travel_direction;
 
     if(left_cmd == NULL || right_cmd == NULL)
     {
@@ -1195,17 +1199,31 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
     {
         int16_t physical_left_rpm = left;
         int16_t physical_right_rpm = (int16_t)(-right);
-        uint8_t feedback_direction_valid = ((*left_cmd > 0 &&
-                                             physical_left_rpm >= 1 &&
-                                             physical_right_rpm >= 1) ||
-                                            (*left_cmd < 0 &&
-                                             physical_left_rpm <= -1 &&
-                                             physical_right_rpm <= -1));
+        float travel_left_rpm;
+        float travel_right_rpm;
 
         straight_sync.last_feedback_sequence = wheel_feedback_sequence;
-        if(feedback_direction_valid)
+        travel_direction = (*left_cmd > 0) ? 1 : -1;
+        travel_left_rpm = (float)(travel_direction * physical_left_rpm);
+        travel_right_rpm = (float)(travel_direction * physical_right_rpm);
+
+        if(travel_left_rpm >= STRAIGHT_SYNC_LAUNCH_FAST_RPM &&
+           travel_right_rpm <= STRAIGHT_SYNC_LAUNCH_STALLED_RPM)
         {
-            float error = (float)(physical_left_rpm - physical_right_rpm);
+            /* Left broke static friction first: only reduce the moving wheel. */
+            straight_sync.filtered_error = travel_left_rpm - travel_right_rpm;
+            straight_sync.trim = STRAIGHT_SYNC_LAUNCH_TRIM_RPM;
+        }
+        else if(travel_right_rpm >= STRAIGHT_SYNC_LAUNCH_FAST_RPM &&
+                travel_left_rpm <= STRAIGHT_SYNC_LAUNCH_STALLED_RPM)
+        {
+            /* Right broke static friction first: correction is symmetric. */
+            straight_sync.filtered_error = travel_left_rpm - travel_right_rpm;
+            straight_sync.trim = -STRAIGHT_SYNC_LAUNCH_TRIM_RPM;
+        }
+        else if(travel_left_rpm >= 1.0f && travel_right_rpm >= 1.0f)
+        {
+            float error = travel_left_rpm - travel_right_rpm;
             straight_sync.filtered_error += STRAIGHT_SYNC_FILTER_ALPHA *
                                             (error - straight_sync.filtered_error);
 
@@ -1229,8 +1247,16 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
         }
     }
 
-    *left_cmd -= straight_sync.trim;
-    *right_cmd += straight_sync.trim;
+    /* Never boost the slow wheel: reduce only the wheel that is running ahead. */
+    if(straight_sync.trim > 0)
+    {
+        *left_cmd -= (int16_t)((*left_cmd > 0) ? straight_sync.trim : -straight_sync.trim);
+    }
+    else if(straight_sync.trim < 0)
+    {
+        int16_t trim_abs = (int16_t)(-straight_sync.trim);
+        *right_cmd -= (int16_t)((*right_cmd > 0) ? trim_abs : -trim_abs);
+    }
 }
 
 #if MOTOR_TRAJECTORY_BENCH_TEST
