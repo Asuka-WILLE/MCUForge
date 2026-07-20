@@ -58,7 +58,6 @@ BAUDRATE = 115200
 WHEEL_RADIUS_M = 0.075
 # RPM_TO_MPS 是 rpm 到 m/s 的换算系数；当前移动速度由左右轮绝对转速平均值换算得到。
 RPM_TO_MPS = 2 * math.pi * WHEEL_RADIUS_M / 60
-HIGH_RES_FEEDBACK_MAX_AGE_MS = 200
 # 图表坐标轴显示上限；超过上限的数据仍会被接收，但曲线会被坐标轴裁掉。
 MAX_RPM_DISPLAY = 50
 MAX_SPEED_MPS_DISPLAY = 1.0
@@ -132,19 +131,8 @@ CSV_FIELDS = [
     "left_rpm_abs",
     "right_rpm_abs",
     "wheel_mismatch_rpm",
-    "left_feedback_rpm",
-    "right_feedback_rpm",
-    "speed_pair_valid",
-    "speed_pair_sequence",
-    "left_speed_tick_ms",
-    "right_speed_tick_ms",
-    "speed_pair_skew_ms",
-    "left_speed_age_ms",
-    "right_speed_age_ms",
     "left_cmd",
     "right_cmd",
-    "left_cmd_physical",
-    "right_cmd_physical",
     "cmd_valid",
     "target_linear",
     "target_steer",
@@ -171,158 +159,6 @@ CSV_FIELDS = [
     "height_mm",
     "left_torque",
     "right_torque",
-    "left_drive_target_rpm",
-    "right_drive_target_rpm",
-    "left_torque_permille",
-    "right_torque_permille",
-    "left_mode",
-    "right_mode",
-    "left_bus_voltage_v",
-    "right_bus_voltage_v",
-    "diagnostic_pair_valid",
-    "diagnostic_pair_sequence",
-    "left_diagnostic_tick_ms",
-    "right_diagnostic_tick_ms",
-    "diagnostic_pair_skew_ms",
-    "left_diagnostic_age_ms",
-    "right_diagnostic_age_ms",
-    "left_position_counts",
-    "right_position_counts",
-    "position_pair_valid",
-    "position_pair_sequence",
-    "left_position_tick_ms",
-    "right_position_tick_ms",
-    "position_pair_skew_ms",
-    "left_position_age_ms",
-    "right_position_age_ms",
-    "motor_write_sequence",
-    "left_write_echo_ok",
-    "right_write_echo_ok",
-    "left_write_ok_count",
-    "right_write_ok_count",
-    "left_write_fail_count",
-    "right_write_fail_count",
-    "left_write_value",
-    "right_write_value",
-    "left_write_tick_ms",
-    "right_write_tick_ms",
-    "left_write_sequence",
-    "right_write_sequence",
-    "config_scan_done",
-    "config_left_support_mask",
-    "config_right_support_mask",
-    "config_mismatch_mask",
-    "left_fw_year",
-    "right_fw_year",
-    "left_fw_date",
-    "right_fw_date",
-    "left_speed_kp",
-    "right_speed_kp",
-    "left_speed_ki",
-    "right_speed_ki",
-    "left_zero_hold_delay_ms",
-    "right_zero_hold_delay_ms",
-    "left_accel_time_ms",
-    "right_accel_time_ms",
-    "left_decel_time_ms",
-    "right_decel_time_ms",
-    "left_torque_limit",
-    "right_torque_limit",
-    "left_inertia_coefficient",
-    "right_inertia_coefficient",
-    "left_pid_algorithm",
-    "right_pid_algorithm",
-    "left_zero_speed_threshold",
-    "right_zero_speed_threshold",
-    "left_zero_speed_filter",
-    "right_zero_speed_filter",
-    "left_torque_limit_enable",
-    "right_torque_limit_enable",
-    "left_reverse_torque_limit",
-    "right_reverse_torque_limit",
-    "left_max_current_10ma",
-    "right_max_current_10ma",
-]
-
-DIAGNOSTIC_INT_FIELDS = [
-    "speed_pair_valid",
-    "speed_pair_sequence",
-    "left_speed_tick_ms",
-    "right_speed_tick_ms",
-    "speed_pair_skew_ms",
-    "left_speed_age_ms",
-    "right_speed_age_ms",
-    "left_cmd_physical",
-    "right_cmd_physical",
-    "left_drive_target_rpm",
-    "right_drive_target_rpm",
-    "left_torque_permille",
-    "right_torque_permille",
-    "left_mode",
-    "right_mode",
-    "diagnostic_pair_valid",
-    "diagnostic_pair_sequence",
-    "left_diagnostic_tick_ms",
-    "right_diagnostic_tick_ms",
-    "diagnostic_pair_skew_ms",
-    "left_diagnostic_age_ms",
-    "right_diagnostic_age_ms",
-    "left_position_counts",
-    "right_position_counts",
-    "position_pair_valid",
-    "position_pair_sequence",
-    "left_position_tick_ms",
-    "right_position_tick_ms",
-    "position_pair_skew_ms",
-    "left_position_age_ms",
-    "right_position_age_ms",
-    "motor_write_sequence",
-    "left_write_echo_ok",
-    "right_write_echo_ok",
-    "left_write_ok_count",
-    "right_write_ok_count",
-    "left_write_fail_count",
-    "right_write_fail_count",
-    "left_write_value",
-    "right_write_value",
-    "left_write_tick_ms",
-    "right_write_tick_ms",
-    "left_write_sequence",
-    "right_write_sequence",
-    "config_scan_done",
-    "config_left_support_mask",
-    "config_right_support_mask",
-    "config_mismatch_mask",
-    "left_fw_year",
-    "right_fw_year",
-    "left_fw_date",
-    "right_fw_date",
-    "left_speed_kp",
-    "right_speed_kp",
-    "left_speed_ki",
-    "right_speed_ki",
-    "left_zero_hold_delay_ms",
-    "right_zero_hold_delay_ms",
-    "left_accel_time_ms",
-    "right_accel_time_ms",
-    "left_decel_time_ms",
-    "right_decel_time_ms",
-    "left_torque_limit",
-    "right_torque_limit",
-    "left_inertia_coefficient",
-    "right_inertia_coefficient",
-    "left_pid_algorithm",
-    "right_pid_algorithm",
-    "left_zero_speed_threshold",
-    "right_zero_speed_threshold",
-    "left_zero_speed_filter",
-    "right_zero_speed_filter",
-    "left_torque_limit_enable",
-    "right_torque_limit_enable",
-    "left_reverse_torque_limit",
-    "right_reverse_torque_limit",
-    "left_max_current_10ma",
-    "right_max_current_10ma",
 ]
 
 
@@ -401,7 +237,6 @@ class TelemetryMonitor(tk.Tk):
             "state": tk.StringVar(value="未连接"),
             "height": tk.StringVar(value="-- mm"),
         }
-        self.diagnostic_var = tk.StringVar(value="Drive diag | waiting for telemetry")
 
         self._build_ui()
         self.refresh_ports()
@@ -519,7 +354,6 @@ class TelemetryMonitor(tk.Tk):
         body.columnconfigure(0, weight=0)
         body.columnconfigure(1, weight=1)
         body.rowconfigure(0, weight=1)
-        body.rowconfigure(1, weight=0)
 
         cards = tk.Frame(body, bg=APP_BG, width=340)
         # 卡片宽度会影响右侧图表剩余空间；左侧文字变大后可适当增加这里。
@@ -616,19 +450,6 @@ class TelemetryMonitor(tk.Tk):
         self.canvas = FigureCanvasTkAgg(self.figure, master=chart_host)
         self.canvas.get_tk_widget().configure(bg=PANEL_BG, highlightthickness=0)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=CHART_PADDING, pady=CHART_PADDING)
-
-        diagnostic_bar = tk.Label(
-            body,
-            textvariable=self.diagnostic_var,
-            bg=CARD_BG,
-            fg=TEXT_SECONDARY,
-            font=("Microsoft YaHei UI", 11, "bold"),
-            anchor="w",
-            justify=tk.LEFT,
-            padx=12,
-            pady=8,
-        )
-        diagnostic_bar.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
 
     def _style_chart_ticks(self):
         # 坐标数字样式：实时刷新坐标范围后也要保持大号加粗。
@@ -884,29 +705,8 @@ class TelemetryMonitor(tk.Tk):
     def _normalize_data(cls, data, elapsed_s):
         left_raw = cls._optional_int(data, "left_rpm")
         right_raw = cls._optional_int(data, "right_rpm")
-        left_x10 = cls._optional_float(data, "left_feedback_rpm_x10")
-        right_x10 = cls._optional_float(data, "right_feedback_rpm_x10")
-        pair_valid = cls._optional_int(data, "speed_pair_valid")
-        left_speed_age = cls._optional_int(data, "left_speed_age_ms")
-        right_speed_age = cls._optional_int(data, "right_speed_age_ms")
-        high_res_fresh = (
-            pair_valid
-            and left_x10 is not None
-            and right_x10 is not None
-            and left_speed_age is not None
-            and right_speed_age is not None
-            and left_speed_age <= HIGH_RES_FEEDBACK_MAX_AGE_MS
-            and right_speed_age <= HIGH_RES_FEEDBACK_MAX_AGE_MS
-        )
-        if high_res_fresh:
-            left_feedback = round(left_x10 / 10.0, 1)
-            right_feedback = round(right_x10 / 10.0, 1)
-        else:
-            left_feedback = None if left_raw is None else float(left_raw)
-            right_feedback = None if right_raw is None else float(-right_raw)
-
-        left_abs = None if left_feedback is None else abs(left_feedback)
-        right_abs = None if right_feedback is None else abs(right_feedback)
+        left_abs = None if left_raw is None else abs(left_raw)
+        right_abs = None if right_raw is None else abs(right_raw)
         speed = None if left_abs is None or right_abs is None else ((left_abs + right_abs) / 2) * RPM_TO_MPS
         mismatch = None if left_abs is None or right_abs is None else abs(left_abs - right_abs)
         height = cls._optional_int(data, "height_mm")
@@ -918,7 +718,7 @@ class TelemetryMonitor(tk.Tk):
         state = str(data["state"]) if data.get("state") not in (None, "") else None
         caster_state = str(data["caster_state"]) if data.get("caster_state") not in (None, "") else None
 
-        normalized = {
+        return {
             "pc_time": datetime.now().isoformat(timespec="milliseconds"),
             "time_s": round(elapsed_s, 3),
             "mcu_tick_ms": cls._optional_int(data, "tick_ms"),
@@ -927,8 +727,6 @@ class TelemetryMonitor(tk.Tk):
             "left_rpm_abs": left_abs,
             "right_rpm_abs": right_abs,
             "wheel_mismatch_rpm": mismatch,
-            "left_feedback_rpm": left_feedback,
-            "right_feedback_rpm": right_feedback,
             "left_cmd": cls._optional_int(data, "left_cmd"),
             "right_cmd": cls._optional_int(data, "right_cmd"),
             "cmd_valid": cls._optional_int(data, "cmd_valid"),
@@ -959,17 +757,6 @@ class TelemetryMonitor(tk.Tk):
             "right_torque": cls._optional_float(data, "right_torque"),
         }
 
-        for field in DIAGNOSTIC_INT_FIELDS:
-            normalized[field] = cls._optional_int(data, field)
-
-        normalized["left_bus_voltage_v"] = cls._optional_float(data, "left_bus_voltage_v")
-        normalized["right_bus_voltage_v"] = cls._optional_float(data, "right_bus_voltage_v")
-        if normalized["left_torque"] is None:
-            normalized["left_torque"] = normalized["left_torque_permille"]
-        if normalized["right_torque"] is None:
-            normalized["right_torque"] = normalized["right_torque_permille"]
-        return normalized
-
     def _queue_log_record(self, raw_data, normalized_data):
         if not self.is_recording:
             return
@@ -996,30 +783,6 @@ class TelemetryMonitor(tk.Tk):
         self.value_vars["speed"].set("-- m/s" if speed is None else f"{speed:.3f} m/s")
         self.value_vars["state"].set("未知" if state is None else STATE_TEXT.get(state, state))
         self.value_vars["height"].set("-- mm" if height is None else f"{height} mm")
-
-        left_ack = normalized["left_write_echo_ok"]
-        right_ack = normalized["right_write_echo_ok"]
-        if not normalized["motor_write_sequence"]:
-            left_ack = None
-            right_ack = None
-        left_target = normalized["left_drive_target_rpm"]
-        right_target = normalized["right_drive_target_rpm"]
-        left_torque = normalized["left_torque_permille"]
-        right_torque = normalized["right_torque_permille"]
-        left_bus = normalized["left_bus_voltage_v"]
-        right_bus = normalized["right_bus_voltage_v"]
-        self.diagnostic_var.set(
-            "Drive diag | ACK L/R: {}/{} | target: {}/{} rpm | torque: {}/{} ‰ | bus: {}/{} V".format(
-                "--" if left_ack is None else ("OK" if left_ack else "FAIL"),
-                "--" if right_ack is None else ("OK" if right_ack else "FAIL"),
-                "--" if left_target is None else left_target,
-                "--" if right_target is None else right_target,
-                "--" if left_torque is None else left_torque,
-                "--" if right_torque is None else right_torque,
-                "--" if left_bus is None else f"{left_bus:g}",
-                "--" if right_bus is None else f"{right_bus:g}",
-            )
-        )
 
         self.x_data.append(now)
         self.left_data.append(math.nan if left is None else left)

@@ -16,101 +16,6 @@ extern volatile uint8_t en_flag;
 #define LIFT_READ_TIMEOUT_MS       80U
 #define MOTOR_PROFILE_TIME_VALUE   0x0064U
 #define MOTOR_CONFIG_WRITE_GAP_MS  10U
-#define MOTOR_WRITE_ECHO_LEN       8U
-
-MotorWriteDiagnostics motor_write_diagnostics={0};
-
-static void motor_clear_uart2_rx(void)
-{
-    uint8_t byte;
-    uint8_t guard = 32U;
-
-    __HAL_UART_CLEAR_OREFLAG(&huart2);
-    huart2.ErrorCode = HAL_UART_ERROR_NONE;
-    while(guard-- > 0U && HAL_UART_Receive(&huart2, &byte, 1U, 0U) == HAL_OK)
-    {
-    }
-}
-
-static uint8_t motor_wait_write_echo(const uint8_t *command, uint32_t gap_ms)
-{
-    uint8_t response[MOTOR_WRITE_ECHO_LEN]={0};
-    uint8_t length=0U;
-    uint32_t start_tick=HAL_GetTick();
-
-    while((HAL_GetTick() - start_tick) < gap_ms)
-    {
-        HAL_StatusTypeDef status;
-
-        if(length >= MOTOR_WRITE_ECHO_LEN)
-        {
-            continue;
-        }
-
-        status = HAL_UART_Receive(&huart2, &response[length], 1U, 0U);
-        if(status == HAL_OK)
-        {
-            length++;
-        }
-        else if(status == HAL_ERROR)
-        {
-            __HAL_UART_CLEAR_OREFLAG(&huart2);
-            huart2.ErrorCode = HAL_UART_ERROR_NONE;
-        }
-    }
-
-    if(length != MOTOR_WRITE_ECHO_LEN)
-    {
-        return 0U;
-    }
-
-    if(Modbus_CRC16(response, 6U) !=
-       (((uint16_t)response[7] << 8) | response[6]))
-    {
-        return 0U;
-    }
-
-    return (memcmp(response, command, MOTOR_WRITE_ECHO_LEN) == 0) ? 1U : 0U;
-}
-
-static void motor_record_write_echo(uint8_t slave_addr,
-                                    int16_t value,
-                                    uint32_t sequence,
-                                    uint8_t echo_ok)
-{
-    uint32_t now=HAL_GetTick();
-
-    if(slave_addr == 1U)
-    {
-        motor_write_diagnostics.left_last_ok = echo_ok;
-        motor_write_diagnostics.left_last_value = value;
-        motor_write_diagnostics.left_last_tick = now;
-        motor_write_diagnostics.left_last_sequence = sequence;
-        if(echo_ok)
-        {
-            motor_write_diagnostics.left_ok_count++;
-        }
-        else
-        {
-            motor_write_diagnostics.left_fail_count++;
-        }
-    }
-    else if(slave_addr == 2U)
-    {
-        motor_write_diagnostics.right_last_ok = echo_ok;
-        motor_write_diagnostics.right_last_value = value;
-        motor_write_diagnostics.right_last_tick = now;
-        motor_write_diagnostics.right_last_sequence = sequence;
-        if(echo_ok)
-        {
-            motor_write_diagnostics.right_ok_count++;
-        }
-        else
-        {
-            motor_write_diagnostics.right_fail_count++;
-        }
-    }
-}
 
 static int16_t modbus_parse_i16_response(uint8_t *buf, uint8_t slave_addr)
 {
@@ -194,16 +99,8 @@ void change_station(void){
 
 void speed_set(int16_t left_rpm, int16_t right_rpm)
 {
-    uint32_t write_sequence;
-    HAL_StatusTypeDef send_status;
-    uint8_t echo_ok;
-
     left_rpm  = (left_rpm  > MAX_RPM) ? MAX_RPM : (left_rpm  < -MAX_RPM) ? -MAX_RPM : left_rpm;
     right_rpm = (right_rpm > MAX_RPM) ? MAX_RPM : (right_rpm < -MAX_RPM) ? -MAX_RPM : right_rpm;
-    write_sequence = ++motor_write_diagnostics.sequence;
-
-    /* Discard only stale background replies before starting this two-write transaction. */
-    motor_clear_uart2_rx();
 
     // ----------------- 鍙宠疆 ---------------
     uint8_t r_cmd[8] = {0x02, 0x06, 0x23, 0x18, 0,0, 0,0};
@@ -212,16 +109,8 @@ void speed_set(int16_t left_rpm, int16_t right_rpm)
     uint16_t crc_r = Modbus_CRC16(r_cmd,6);
     r_cmd[6] = crc_r & 0xFF;
     r_cmd[7] = (crc_r >> 8) & 0xFF;
-	send_status = RS485_SendPacket(r_cmd,8);
-    echo_ok = motor_wait_write_echo(r_cmd, 2U);
-    if(send_status != HAL_OK)
-    {
-        echo_ok = 0U;
-    }
-    motor_record_write_echo(2U, right_rpm, write_sequence, echo_ok);
-
-    /* A late/incomplete right reply must not be mistaken for the left reply. */
-    motor_clear_uart2_rx();
+    RS485_SendPacket(r_cmd,8);
+		HAL_Delay(2);  // no response wait needed
 	
 	  // ---------------- 宸﹁疆 ----------------
     uint8_t l_cmd[8] = {0x01, 0x06, 0x23, 0x18, 0,0, 0,0};// 0x00, 0x64, 0xCA, 0x79
@@ -230,13 +119,8 @@ void speed_set(int16_t left_rpm, int16_t right_rpm)
     uint16_t crc_l = Modbus_CRC16(l_cmd,6);
     l_cmd[6] = crc_l & 0xFF;
     l_cmd[7] = (crc_l >> 8) & 0xFF;
-	send_status = RS485_SendPacket(l_cmd,8);
-    echo_ok = motor_wait_write_echo(l_cmd, 5U);
-    if(send_status != HAL_OK)
-    {
-        echo_ok = 0U;
-    }
-    motor_record_write_echo(1U, left_rpm, write_sequence, echo_ok);
+    RS485_SendPacket(l_cmd,8);
+   HAL_Delay(5);
 
     
 }
