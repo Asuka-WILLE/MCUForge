@@ -46,10 +46,18 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define TELEMETRY_PERIOD_MS 50U
-#define TELEMETRY_LINE_MAX  1024U
-#define TELEMETRY_RESPONSE_LEN 7U
+#define TELEMETRY_LINE_MAX  2048U
+#define TELEMETRY_RESPONSE_LEN 23U
+#define TELEMETRY_SINGLE_RESPONSE_LEN 7U
+#define TELEMETRY_DIAGNOSTIC_RESPONSE_LEN 23U
 #define MOTOR_SPEED_FEEDBACK_REGISTER 0x500EU
-#define TELEMETRY_QUERY_PERIOD_MS 30U
+#define MOTOR_DIAGNOSTIC_REGISTER 0x5002U
+#define MOTOR_DIAGNOSTIC_REGISTER_COUNT 9U
+#define MOTOR_FAULT_REGISTER 0x5012U
+#define MOTOR_ENABLE_REGISTER 0x2100U
+#define TELEMETRY_QUERY_PERIOD_MS 20U
+#define TELEMETRY_DIAGNOSTIC_QUERY_PERIOD_MS 100U
+#define TELEMETRY_HEALTH_QUERY_PERIOD_MS 250U
 #define TELEMETRY_LIFT_QUERY_PERIOD_MS 500U
 #define TELEMETRY_MOTOR_TIMEOUT_MS 50U
 #define TELEMETRY_LIFT_TIMEOUT_MS  15U
@@ -203,13 +211,18 @@ int16_t lift_height_mm=-1;
 volatile uint8_t telemetry_failsafe=0;
 static uint32_t telemetry_last_tick=0;
 static uint32_t telemetry_last_query_tick=0;
+static uint32_t telemetry_last_diagnostic_query_tick=0;
+static uint32_t telemetry_last_health_query_tick=0;
 static uint32_t telemetry_last_lift_query_tick=0;
 static uint32_t telemetry_control_last_tick=0;
 static uint32_t telemetry_query_start_tick=0;
 static uint8_t telemetry_rx_buf[TELEMETRY_RESPONSE_LEN]={0};
 static uint8_t telemetry_rx_len=0;
+static uint8_t telemetry_rx_expected_len=TELEMETRY_SINGLE_RESPONSE_LEN;
 static uint8_t telemetry_query_slave=0;
 static uint8_t telemetry_query_step=0;
+static uint8_t telemetry_diagnostic_query_step=0;
+static uint8_t telemetry_health_query_step=0;
 static uint8_t motor_speed_cmd_valid=0;
 static int16_t motor_last_left_cmd=0;
 static int16_t motor_last_right_cmd=0;
@@ -228,6 +241,24 @@ static uint32_t left_write_fail_count=0U;
 static uint32_t right_write_fail_count=0U;
 static uint8_t left_write_echo_ok=0U;
 static uint8_t right_write_echo_ok=0U;
+static int16_t left_torque_permille=0;
+static int16_t right_torque_permille=0;
+static int16_t left_internal_target_rpm=0;
+static int16_t right_internal_target_rpm=0;
+static int16_t left_torque_command_permille=0;
+static int16_t right_torque_command_permille=0;
+static uint16_t left_run_mode=0U;
+static uint16_t right_run_mode=0U;
+static uint16_t left_bus_voltage_v=0U;
+static uint16_t right_bus_voltage_v=0U;
+static uint16_t left_fault_code=0U;
+static uint16_t right_fault_code=0U;
+static uint16_t left_enable_state=0U;
+static uint16_t right_enable_state=0U;
+static uint32_t left_diagnostic_tick=0U;
+static uint32_t right_diagnostic_tick=0U;
+static uint32_t left_health_tick=0U;
+static uint32_t right_health_tick=0U;
 
 typedef enum
 {
@@ -379,6 +410,18 @@ typedef enum
     TELEMETRY_WAIT_LEFT,
     TELEMETRY_SEND_RIGHT,
     TELEMETRY_WAIT_RIGHT,
+    TELEMETRY_SEND_DIAGNOSTIC_LEFT,
+    TELEMETRY_WAIT_DIAGNOSTIC_LEFT,
+    TELEMETRY_SEND_DIAGNOSTIC_RIGHT,
+    TELEMETRY_WAIT_DIAGNOSTIC_RIGHT,
+    TELEMETRY_SEND_FAULT_LEFT,
+    TELEMETRY_WAIT_FAULT_LEFT,
+    TELEMETRY_SEND_FAULT_RIGHT,
+    TELEMETRY_WAIT_FAULT_RIGHT,
+    TELEMETRY_SEND_ENABLE_LEFT,
+    TELEMETRY_WAIT_ENABLE_LEFT,
+    TELEMETRY_SEND_ENABLE_RIGHT,
+    TELEMETRY_WAIT_ENABLE_RIGHT,
     TELEMETRY_SEND_LIFT,
     TELEMETRY_WAIT_LIFT
 } TelemetryQueryState;
@@ -616,6 +659,32 @@ static uint8_t telemetry_parse_i16_response(uint8_t *buf, uint8_t slave_addr, in
     return 1;
 }
 
+static uint8_t telemetry_parse_register_block(uint8_t *buf,
+                                              uint8_t slave_addr,
+                                              uint8_t register_count)
+{
+    uint8_t byte_count = (uint8_t)(register_count * 2U);
+    uint8_t response_len = (uint8_t)(byte_count + 5U);
+    uint16_t calc_crc;
+    uint16_t recv_crc;
+
+    if(buf[0] != slave_addr || buf[1] != 0x03 || buf[2] != byte_count)
+    {
+        return 0U;
+    }
+
+    calc_crc = Modbus_CRC16(buf, (uint16_t)(response_len - 2U));
+    recv_crc = ((uint16_t)buf[response_len - 1U] << 8) |
+               buf[response_len - 2U];
+    return (calc_crc == recv_crc) ? 1U : 0U;
+}
+
+static int16_t telemetry_block_i16(const uint8_t *buf, uint8_t register_index)
+{
+    uint8_t offset = (uint8_t)(3U + register_index * 2U);
+    return (int16_t)(((uint16_t)buf[offset] << 8) | buf[offset + 1U]);
+}
+
 static void telemetry_clear_uart_rx(UART_HandleTypeDef *huart)
 {
     uint8_t dummy;
@@ -638,7 +707,7 @@ static uint8_t telemetry_poll_uart_response(UART_HandleTypeDef *huart)
 {
     uint8_t byte;
 
-    while(telemetry_rx_len < TELEMETRY_RESPONSE_LEN)
+    while(telemetry_rx_len < telemetry_rx_expected_len)
     {
         HAL_StatusTypeDef sta = HAL_UART_Receive(huart, &byte, 1, 0);
         if(sta == HAL_OK)
@@ -655,17 +724,20 @@ static uint8_t telemetry_poll_uart_response(UART_HandleTypeDef *huart)
         break;
     }
 
-    return (telemetry_rx_len >= TELEMETRY_RESPONSE_LEN);
+    return (telemetry_rx_len >= telemetry_rx_expected_len);
 }
 
-static void telemetry_build_read_cmd(uint8_t slave_addr, uint16_t reg, uint8_t *cmd)
+static void telemetry_build_read_cmd(uint8_t slave_addr,
+                                     uint16_t reg,
+                                     uint16_t register_count,
+                                     uint8_t *cmd)
 {
     cmd[0] = slave_addr;
     cmd[1] = 0x03;
     cmd[2] = (uint8_t)(reg >> 8);
     cmd[3] = (uint8_t)(reg & 0xFF);
-    cmd[4] = 0x00;
-    cmd[5] = 0x01;
+    cmd[4] = (uint8_t)(register_count >> 8);
+    cmd[5] = (uint8_t)(register_count & 0xFFU);
     uint16_t crc = Modbus_CRC16(cmd, 6);
     cmd[6] = crc & 0xFF;
     cmd[7] = crc >> 8;
@@ -677,13 +749,17 @@ static int16_t telemetry_rpm_x10_to_legacy_rpm(int16_t rpm_x10)
                             (int16_t)((rpm_x10 - 5) / 10);
 }
 
-static uint8_t telemetry_start_motor_query(uint8_t slave_addr, TelemetryQueryState next_state)
+static uint8_t telemetry_start_motor_query(uint8_t slave_addr,
+                                           uint16_t reg,
+                                           uint16_t register_count,
+                                           uint8_t response_len,
+                                           TelemetryQueryState next_state)
 {
     uint8_t cmd[8];
 
     telemetry_reset_rx_buffer();
     telemetry_clear_uart_rx(&huart2);
-    telemetry_build_read_cmd(slave_addr, MOTOR_SPEED_FEEDBACK_REGISTER, cmd);
+    telemetry_build_read_cmd(slave_addr, reg, register_count, cmd);
 
     if(RS485_SendPacketTimeout(cmd, 8, TELEMETRY_TX_TIMEOUT_MS) != HAL_OK)
     {
@@ -692,6 +768,7 @@ static uint8_t telemetry_start_motor_query(uint8_t slave_addr, TelemetryQuerySta
     }
 
     telemetry_query_slave = slave_addr;
+    telemetry_rx_expected_len = response_len;
     telemetry_query_start_tick = HAL_GetTick();
     telemetry_query_state = next_state;
     return 1;
@@ -703,7 +780,7 @@ static uint8_t telemetry_start_lift_query(void)
 
     telemetry_reset_rx_buffer();
     telemetry_clear_uart_rx(&huart3);
-    telemetry_build_read_cmd(0x01, 0x0002, cmd);
+    telemetry_build_read_cmd(0x01, 0x0002, 1U, cmd);
 
     if(RS485_SendPacket2Timeout(cmd, 8, TELEMETRY_TX_TIMEOUT_MS) != HAL_OK)
     {
@@ -712,6 +789,7 @@ static uint8_t telemetry_start_lift_query(void)
     }
 
     telemetry_query_slave = 0x01;
+    telemetry_rx_expected_len = TELEMETRY_SINGLE_RESPONSE_LEN;
     telemetry_query_start_tick = HAL_GetTick();
     telemetry_query_state = TELEMETRY_WAIT_LIFT;
     return 1;
@@ -760,17 +838,25 @@ static void telemetry_finish_lift_query(uint8_t response_ready)
 
 static void telemetry_advance_query_step(void)
 {
-    if(telemetry_query_state == TELEMETRY_WAIT_LIFT)
+    if(telemetry_query_state == TELEMETRY_SEND_LEFT ||
+       telemetry_query_state == TELEMETRY_WAIT_LEFT ||
+       telemetry_query_state == TELEMETRY_SEND_RIGHT ||
+       telemetry_query_state == TELEMETRY_WAIT_RIGHT)
     {
-        return;
+        telemetry_query_step = (telemetry_query_step == 0U) ? 1U : 0U;
     }
-    telemetry_query_step = (telemetry_query_step == 0U) ? 1U : 0U;
 }
 
 static void telemetry_abort_pending_query(void)
 {
     if(telemetry_query_state == TELEMETRY_WAIT_LEFT ||
        telemetry_query_state == TELEMETRY_WAIT_RIGHT ||
+       telemetry_query_state == TELEMETRY_WAIT_DIAGNOSTIC_LEFT ||
+       telemetry_query_state == TELEMETRY_WAIT_DIAGNOSTIC_RIGHT ||
+       telemetry_query_state == TELEMETRY_WAIT_FAULT_LEFT ||
+       telemetry_query_state == TELEMETRY_WAIT_FAULT_RIGHT ||
+       telemetry_query_state == TELEMETRY_WAIT_ENABLE_LEFT ||
+       telemetry_query_state == TELEMETRY_WAIT_ENABLE_RIGHT ||
        telemetry_query_state == TELEMETRY_WAIT_LIFT)
     {
         telemetry_query_state = TELEMETRY_QUERY_IDLE;
@@ -784,7 +870,37 @@ static void telemetry_schedule_current_step(void)
 {
     uint32_t now = HAL_GetTick();
 
-    if((now - telemetry_last_lift_query_tick) >= TELEMETRY_LIFT_QUERY_PERIOD_MS)
+    if((now - telemetry_last_health_query_tick) >= TELEMETRY_HEALTH_QUERY_PERIOD_MS)
+    {
+        telemetry_last_health_query_tick = now;
+        switch(telemetry_health_query_step)
+        {
+            case 0U:
+                telemetry_query_state = TELEMETRY_SEND_FAULT_LEFT;
+                break;
+            case 1U:
+                telemetry_query_state = TELEMETRY_SEND_FAULT_RIGHT;
+                break;
+            case 2U:
+                telemetry_query_state = TELEMETRY_SEND_ENABLE_LEFT;
+                break;
+            default:
+                telemetry_query_state = TELEMETRY_SEND_ENABLE_RIGHT;
+                break;
+        }
+        telemetry_health_query_step = (uint8_t)((telemetry_health_query_step + 1U) % 4U);
+    }
+    else if((now - telemetry_last_diagnostic_query_tick) >=
+            TELEMETRY_DIAGNOSTIC_QUERY_PERIOD_MS)
+    {
+        telemetry_last_diagnostic_query_tick = now;
+        telemetry_query_state = (telemetry_diagnostic_query_step == 0U) ?
+                                TELEMETRY_SEND_DIAGNOSTIC_LEFT :
+                                TELEMETRY_SEND_DIAGNOSTIC_RIGHT;
+        telemetry_diagnostic_query_step =
+            (telemetry_diagnostic_query_step == 0U) ? 1U : 0U;
+    }
+    else if((now - telemetry_last_lift_query_tick) >= TELEMETRY_LIFT_QUERY_PERIOD_MS)
     {
         telemetry_last_lift_query_tick = now;
         telemetry_query_state = TELEMETRY_SEND_LIFT;
@@ -793,6 +909,87 @@ static void telemetry_schedule_current_step(void)
     {
         telemetry_query_state = (telemetry_query_step == 0U) ?
                                 TELEMETRY_SEND_LEFT : TELEMETRY_SEND_RIGHT;
+    }
+}
+
+static void telemetry_finish_diagnostic_query(uint8_t response_ready)
+{
+    int16_t torque;
+    int16_t internal_target;
+    int16_t torque_command;
+    uint16_t run_mode;
+    uint16_t bus_voltage;
+    uint32_t now;
+
+    if(!response_ready ||
+       !telemetry_parse_register_block(telemetry_rx_buf,
+                                       telemetry_query_slave,
+                                       MOTOR_DIAGNOSTIC_REGISTER_COUNT))
+    {
+        return;
+    }
+
+    torque = telemetry_block_i16(telemetry_rx_buf, 0U);          /* 0x5002 */
+    internal_target = telemetry_block_i16(telemetry_rx_buf, 5U); /* 0x5007 */
+    torque_command = telemetry_block_i16(telemetry_rx_buf, 6U);  /* 0x5008 */
+    run_mode = (uint16_t)telemetry_block_i16(telemetry_rx_buf, 7U); /* 0x5009 */
+    bus_voltage = (uint16_t)telemetry_block_i16(telemetry_rx_buf, 8U); /* 0x500A */
+    now = HAL_GetTick();
+
+    if(telemetry_query_slave == 1U)
+    {
+        left_torque_permille = torque;
+        left_internal_target_rpm = internal_target;
+        left_torque_command_permille = torque_command;
+        left_run_mode = run_mode;
+        left_bus_voltage_v = bus_voltage;
+        left_diagnostic_tick = now;
+    }
+    else if(telemetry_query_slave == 2U)
+    {
+        right_torque_permille = torque;
+        right_internal_target_rpm = internal_target;
+        right_torque_command_permille = torque_command;
+        right_run_mode = run_mode;
+        right_bus_voltage_v = bus_voltage;
+        right_diagnostic_tick = now;
+    }
+}
+
+static void telemetry_finish_health_query(uint8_t response_ready,
+                                          uint8_t is_enable_query)
+{
+    int16_t value;
+
+    if(!response_ready ||
+       !telemetry_parse_i16_response(telemetry_rx_buf, telemetry_query_slave, &value))
+    {
+        return;
+    }
+
+    if(telemetry_query_slave == 1U)
+    {
+        if(is_enable_query)
+        {
+            left_enable_state = (uint16_t)value;
+        }
+        else
+        {
+            left_fault_code = (uint16_t)value;
+        }
+        left_health_tick = HAL_GetTick();
+    }
+    else if(telemetry_query_slave == 2U)
+    {
+        if(is_enable_query)
+        {
+            right_enable_state = (uint16_t)value;
+        }
+        else
+        {
+            right_fault_code = (uint16_t)value;
+        }
+        right_health_tick = HAL_GetTick();
     }
 }
 
@@ -1917,6 +2114,12 @@ static uint8_t telemetry_query_is_waiting(void)
 {
     return (telemetry_query_state == TELEMETRY_WAIT_LEFT ||
             telemetry_query_state == TELEMETRY_WAIT_RIGHT ||
+            telemetry_query_state == TELEMETRY_WAIT_DIAGNOSTIC_LEFT ||
+            telemetry_query_state == TELEMETRY_WAIT_DIAGNOSTIC_RIGHT ||
+            telemetry_query_state == TELEMETRY_WAIT_FAULT_LEFT ||
+            telemetry_query_state == TELEMETRY_WAIT_FAULT_RIGHT ||
+            telemetry_query_state == TELEMETRY_WAIT_ENABLE_LEFT ||
+            telemetry_query_state == TELEMETRY_WAIT_ENABLE_RIGHT ||
             telemetry_query_state == TELEMETRY_WAIT_LIFT);
 }
 
@@ -1985,7 +2188,11 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
         case TELEMETRY_SEND_LEFT:
             if(allow_start && (now - telemetry_control_last_tick) >= TELEMETRY_CONTROL_HOLDOFF_MS)
             {
-                if(!telemetry_start_motor_query(1, TELEMETRY_WAIT_LEFT))
+                if(!telemetry_start_motor_query(1U,
+                                                MOTOR_SPEED_FEEDBACK_REGISTER,
+                                                1U,
+                                                TELEMETRY_SINGLE_RESPONSE_LEN,
+                                                TELEMETRY_WAIT_LEFT))
                 {
                     telemetry_advance_query_step();
                     telemetry_query_state = TELEMETRY_QUERY_IDLE;
@@ -2007,7 +2214,11 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
         case TELEMETRY_SEND_RIGHT:
             if(allow_start && (now - telemetry_control_last_tick) >= TELEMETRY_CONTROL_HOLDOFF_MS)
             {
-                if(!telemetry_start_motor_query(2, TELEMETRY_WAIT_RIGHT))
+                if(!telemetry_start_motor_query(2U,
+                                                MOTOR_SPEED_FEEDBACK_REGISTER,
+                                                1U,
+                                                TELEMETRY_SINGLE_RESPONSE_LEN,
+                                                TELEMETRY_WAIT_RIGHT))
                 {
                     telemetry_advance_query_step();
                     telemetry_query_state = TELEMETRY_QUERY_IDLE;
@@ -2022,6 +2233,114 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
             {
                 telemetry_finish_motor_query(response_ready);
                 telemetry_advance_query_step();
+                telemetry_query_state = TELEMETRY_QUERY_IDLE;
+            }
+            break;
+
+        case TELEMETRY_SEND_DIAGNOSTIC_LEFT:
+            if(allow_start && (now - telemetry_control_last_tick) >= TELEMETRY_CONTROL_HOLDOFF_MS)
+            {
+                if(!telemetry_start_motor_query(1U,
+                                                MOTOR_DIAGNOSTIC_REGISTER,
+                                                MOTOR_DIAGNOSTIC_REGISTER_COUNT,
+                                                TELEMETRY_DIAGNOSTIC_RESPONSE_LEN,
+                                                TELEMETRY_WAIT_DIAGNOSTIC_LEFT))
+                {
+                    telemetry_query_state = TELEMETRY_QUERY_IDLE;
+                }
+            }
+            break;
+
+        case TELEMETRY_WAIT_DIAGNOSTIC_LEFT:
+            response_ready = telemetry_poll_uart_response(&huart2);
+            timeout = ((now - telemetry_query_start_tick) >= TELEMETRY_MOTOR_TIMEOUT_MS);
+            if(response_ready || timeout)
+            {
+                telemetry_finish_diagnostic_query(response_ready);
+                telemetry_query_state = TELEMETRY_QUERY_IDLE;
+            }
+            break;
+
+        case TELEMETRY_SEND_DIAGNOSTIC_RIGHT:
+            if(allow_start && (now - telemetry_control_last_tick) >= TELEMETRY_CONTROL_HOLDOFF_MS)
+            {
+                if(!telemetry_start_motor_query(2U,
+                                                MOTOR_DIAGNOSTIC_REGISTER,
+                                                MOTOR_DIAGNOSTIC_REGISTER_COUNT,
+                                                TELEMETRY_DIAGNOSTIC_RESPONSE_LEN,
+                                                TELEMETRY_WAIT_DIAGNOSTIC_RIGHT))
+                {
+                    telemetry_query_state = TELEMETRY_QUERY_IDLE;
+                }
+            }
+            break;
+
+        case TELEMETRY_WAIT_DIAGNOSTIC_RIGHT:
+            response_ready = telemetry_poll_uart_response(&huart2);
+            timeout = ((now - telemetry_query_start_tick) >= TELEMETRY_MOTOR_TIMEOUT_MS);
+            if(response_ready || timeout)
+            {
+                telemetry_finish_diagnostic_query(response_ready);
+                telemetry_query_state = TELEMETRY_QUERY_IDLE;
+            }
+            break;
+
+        case TELEMETRY_SEND_FAULT_LEFT:
+        case TELEMETRY_SEND_FAULT_RIGHT:
+            if(allow_start && (now - telemetry_control_last_tick) >= TELEMETRY_CONTROL_HOLDOFF_MS)
+            {
+                uint8_t slave = (telemetry_query_state == TELEMETRY_SEND_FAULT_LEFT) ? 1U : 2U;
+                TelemetryQueryState wait_state = (slave == 1U) ?
+                                                 TELEMETRY_WAIT_FAULT_LEFT :
+                                                 TELEMETRY_WAIT_FAULT_RIGHT;
+                if(!telemetry_start_motor_query(slave,
+                                                MOTOR_FAULT_REGISTER,
+                                                1U,
+                                                TELEMETRY_SINGLE_RESPONSE_LEN,
+                                                wait_state))
+                {
+                    telemetry_query_state = TELEMETRY_QUERY_IDLE;
+                }
+            }
+            break;
+
+        case TELEMETRY_WAIT_FAULT_LEFT:
+        case TELEMETRY_WAIT_FAULT_RIGHT:
+            response_ready = telemetry_poll_uart_response(&huart2);
+            timeout = ((now - telemetry_query_start_tick) >= TELEMETRY_MOTOR_TIMEOUT_MS);
+            if(response_ready || timeout)
+            {
+                telemetry_finish_health_query(response_ready, 0U);
+                telemetry_query_state = TELEMETRY_QUERY_IDLE;
+            }
+            break;
+
+        case TELEMETRY_SEND_ENABLE_LEFT:
+        case TELEMETRY_SEND_ENABLE_RIGHT:
+            if(allow_start && (now - telemetry_control_last_tick) >= TELEMETRY_CONTROL_HOLDOFF_MS)
+            {
+                uint8_t slave = (telemetry_query_state == TELEMETRY_SEND_ENABLE_LEFT) ? 1U : 2U;
+                TelemetryQueryState wait_state = (slave == 1U) ?
+                                                 TELEMETRY_WAIT_ENABLE_LEFT :
+                                                 TELEMETRY_WAIT_ENABLE_RIGHT;
+                if(!telemetry_start_motor_query(slave,
+                                                MOTOR_ENABLE_REGISTER,
+                                                1U,
+                                                TELEMETRY_SINGLE_RESPONSE_LEN,
+                                                wait_state))
+                {
+                    telemetry_query_state = TELEMETRY_QUERY_IDLE;
+                }
+            }
+            break;
+
+        case TELEMETRY_WAIT_ENABLE_LEFT:
+        case TELEMETRY_WAIT_ENABLE_RIGHT:
+            response_ready = telemetry_poll_uart_response(&huart2);
+            timeout = ((now - telemetry_query_start_tick) >= TELEMETRY_MOTOR_TIMEOUT_MS);
+            if(response_ready || timeout)
+            {
+                telemetry_finish_health_query(response_ready, 1U);
                 telemetry_query_state = TELEMETRY_QUERY_IDLE;
             }
             break;
@@ -2064,11 +2383,19 @@ static void telemetry_send(void)
     uint32_t rc_link_age_ms = rc_last_link_frame_tick == 0U ? 0U : (now - rc_last_link_frame_tick);
     uint32_t left_speed_age_ms = left_feedback_tick == 0U ? 0U : (now - left_feedback_tick);
     uint32_t right_speed_age_ms = right_feedback_tick == 0U ? 0U : (now - right_feedback_tick);
+    uint32_t left_diagnostic_age_ms = left_diagnostic_tick == 0U ? 0U :
+                                      (now - left_diagnostic_tick);
+    uint32_t right_diagnostic_age_ms = right_diagnostic_tick == 0U ? 0U :
+                                       (now - right_diagnostic_tick);
+    uint32_t left_health_age_ms = left_health_tick == 0U ? 0U :
+                                  (now - left_health_tick);
+    uint32_t right_health_age_ms = right_health_tick == 0U ? 0U :
+                                   (now - right_health_tick);
     uint8_t sync_launch_active = (straight_sync.launch_start_tick != 0U &&
                                   (now - straight_sync.launch_start_tick) <=
                                   STRAIGHT_SYNC_LAUNCH_WINDOW_MS);
     int len = snprintf(line, sizeof(line),
-                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_rpm_x10\":%d,\"right_rpm_x10\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"sync_launch_active\":%u,\"sync_pair_sequence\":%lu,\"sync_pair_skew_ms\":%lu,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_link_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"speed_pair_sequence\":%lu,\"left_speed_age_ms\":%lu,\"right_speed_age_ms\":%lu,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu}\r\n",
+                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_rpm_x10\":%d,\"right_rpm_x10\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"sync_launch_active\":%u,\"sync_pair_sequence\":%lu,\"sync_pair_skew_ms\":%lu,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_link_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"speed_pair_sequence\":%lu,\"left_speed_age_ms\":%lu,\"right_speed_age_ms\":%lu,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu,\"left_torque\":%d,\"right_torque\":%d,\"left_internal_target_rpm\":%d,\"right_internal_target_rpm\":%d,\"left_torque_command\":%d,\"right_torque_command\":%d,\"left_run_mode\":%u,\"right_run_mode\":%u,\"left_bus_voltage_v\":%u,\"right_bus_voltage_v\":%u,\"left_fault_code\":%u,\"right_fault_code\":%u,\"left_enable\":%u,\"right_enable\":%u,\"left_diagnostic_age_ms\":%lu,\"right_diagnostic_age_ms\":%lu,\"left_health_age_ms\":%lu,\"right_health_age_ms\":%lu}\r\n",
                        (unsigned long)now,
                        left,
                        right,
@@ -2116,7 +2443,25 @@ static void telemetry_send(void)
                        (unsigned int)left_write_echo_ok,
                        (unsigned int)right_write_echo_ok,
                        (unsigned long)left_write_fail_count,
-                       (unsigned long)right_write_fail_count);
+                       (unsigned long)right_write_fail_count,
+                       left_torque_permille,
+                       right_torque_permille,
+                       left_internal_target_rpm,
+                       right_internal_target_rpm,
+                       left_torque_command_permille,
+                       right_torque_command_permille,
+                       (unsigned int)left_run_mode,
+                       (unsigned int)right_run_mode,
+                       (unsigned int)left_bus_voltage_v,
+                       (unsigned int)right_bus_voltage_v,
+                       (unsigned int)left_fault_code,
+                       (unsigned int)right_fault_code,
+                       (unsigned int)left_enable_state,
+                       (unsigned int)right_enable_state,
+                       (unsigned long)left_diagnostic_age_ms,
+                       (unsigned long)right_diagnostic_age_ms,
+                       (unsigned long)left_health_age_ms,
+                       (unsigned long)right_health_age_ms);
 
     if(len > 0 && len < (int)sizeof(line))
     {

@@ -178,6 +178,22 @@ CSV_FIELDS = [
     "right_write_fail_count",
     "left_torque",
     "right_torque",
+    "left_internal_target_rpm",
+    "right_internal_target_rpm",
+    "left_torque_command",
+    "right_torque_command",
+    "left_run_mode",
+    "right_run_mode",
+    "left_bus_voltage_v",
+    "right_bus_voltage_v",
+    "left_fault_code",
+    "right_fault_code",
+    "left_enable",
+    "right_enable",
+    "left_diagnostic_age_ms",
+    "right_diagnostic_age_ms",
+    "left_health_age_ms",
+    "right_health_age_ms",
 ]
 
 
@@ -795,6 +811,22 @@ class TelemetryMonitor(tk.Tk):
             "right_write_fail_count": cls._optional_int(data, "right_write_fail_count"),
             "left_torque": cls._optional_float(data, "left_torque"),
             "right_torque": cls._optional_float(data, "right_torque"),
+            "left_internal_target_rpm": cls._optional_int(data, "left_internal_target_rpm"),
+            "right_internal_target_rpm": cls._optional_int(data, "right_internal_target_rpm"),
+            "left_torque_command": cls._optional_int(data, "left_torque_command"),
+            "right_torque_command": cls._optional_int(data, "right_torque_command"),
+            "left_run_mode": cls._optional_int(data, "left_run_mode"),
+            "right_run_mode": cls._optional_int(data, "right_run_mode"),
+            "left_bus_voltage_v": cls._optional_int(data, "left_bus_voltage_v"),
+            "right_bus_voltage_v": cls._optional_int(data, "right_bus_voltage_v"),
+            "left_fault_code": cls._optional_int(data, "left_fault_code"),
+            "right_fault_code": cls._optional_int(data, "right_fault_code"),
+            "left_enable": cls._optional_int(data, "left_enable"),
+            "right_enable": cls._optional_int(data, "right_enable"),
+            "left_diagnostic_age_ms": cls._optional_int(data, "left_diagnostic_age_ms"),
+            "right_diagnostic_age_ms": cls._optional_int(data, "right_diagnostic_age_ms"),
+            "left_health_age_ms": cls._optional_int(data, "left_health_age_ms"),
+            "right_health_age_ms": cls._optional_int(data, "right_health_age_ms"),
         }
 
     def _queue_log_record(self, raw_data, normalized_data):
@@ -933,6 +965,7 @@ def run_headless(
     commands_sent = 0
     stop_commands_sent = 0
     ready_samples = 0
+    latest_drive_diagnostics = {}
     start = time.monotonic()
 
     try:
@@ -1051,6 +1084,29 @@ def run_headless(
                     max_right_cmd_abs = max(max_right_cmd_abs, abs(normalized["right_cmd"]))
                 if normalized["pc_test_status"]:
                     pc_test_statuses.add(normalized["pc_test_status"])
+                latest_drive_diagnostics = {
+                    key: normalized.get(key)
+                    for key in (
+                        "left_torque",
+                        "right_torque",
+                        "left_internal_target_rpm",
+                        "right_internal_target_rpm",
+                        "left_torque_command",
+                        "right_torque_command",
+                        "left_run_mode",
+                        "right_run_mode",
+                        "left_bus_voltage_v",
+                        "right_bus_voltage_v",
+                        "left_fault_code",
+                        "right_fault_code",
+                        "left_enable",
+                        "right_enable",
+                        "left_diagnostic_age_ms",
+                        "right_diagnostic_age_ms",
+                        "left_health_age_ms",
+                        "right_health_age_ms",
+                    )
+                }
 
             if sequence:
                 serial_port.write(b"STOP\n")
@@ -1081,6 +1137,7 @@ def run_headless(
         "pc_test_statuses": sorted(pc_test_statuses),
         "max_wheel_mismatch_rpm": max(mismatch_values) if mismatch_values else None,
         "mean_wheel_mismatch_rpm": round(sum(mismatch_values) / len(mismatch_values), 3) if mismatch_values else None,
+        "latest_drive_diagnostics": latest_drive_diagnostics,
         "session_dir": str(session_dir),
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
