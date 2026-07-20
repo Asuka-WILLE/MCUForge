@@ -46,13 +46,14 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define TELEMETRY_PERIOD_MS 50U
-#define TELEMETRY_LINE_MAX  896U
+#define TELEMETRY_LINE_MAX  1024U
 #define TELEMETRY_RESPONSE_LEN 7U
 #define TELEMETRY_QUERY_PERIOD_MS 60U
 #define TELEMETRY_MOTOR_TIMEOUT_MS 50U
 #define TELEMETRY_LIFT_TIMEOUT_MS  15U
 #define TELEMETRY_TX_TIMEOUT_MS    5U
 #define TELEMETRY_CONTROL_HOLDOFF_MS 5U
+#define MOTOR_WRITE_ECHO_TIMEOUT_MS 6U
 #define MOTOR_COMMAND_REFRESH_MS   100U
 #define MOTOR_COMMAND_IMMEDIATE_DELTA_RPM 1
 #define MOTOR_TRAJECTORY_PERIOD_MS 20U
@@ -206,6 +207,13 @@ static int16_t motor_target_steer=0;
 static uint32_t left_feedback_tick=0U;
 static uint32_t right_feedback_tick=0U;
 static uint32_t wheel_feedback_sequence=0U;
+static uint32_t motor_write_sequence=0U;
+static uint32_t left_write_ok_count=0U;
+static uint32_t right_write_ok_count=0U;
+static uint32_t left_write_fail_count=0U;
+static uint32_t right_write_fail_count=0U;
+static uint8_t left_write_echo_ok=0U;
+static uint8_t right_write_echo_ok=0U;
 
 typedef enum
 {
@@ -1658,13 +1666,69 @@ static void rc_accept_trustworthy_frame(const int16_t ch[SBUS_NUM_CHANNELS], uin
     }
 }
 
+static uint8_t motor_write_speed_with_echo(uint8_t slave_addr, int16_t rpm)
+{
+    uint8_t cmd[8] = {
+        slave_addr, 0x06, 0x23, 0x18,
+        (uint8_t)(((uint16_t)rpm >> 8) & 0xFFU),
+        (uint8_t)((uint16_t)rpm & 0xFFU),
+        0U, 0U
+    };
+    uint8_t response[8] = {0};
+    uint16_t crc = Modbus_CRC16(cmd, 6U);
+
+    cmd[6] = (uint8_t)(crc & 0xFFU);
+    cmd[7] = (uint8_t)(crc >> 8);
+    telemetry_clear_uart_rx(&huart2);
+
+    if(RS485_SendPacketTimeout(cmd, sizeof(cmd), TELEMETRY_TX_TIMEOUT_MS) != HAL_OK)
+    {
+        return 0U;
+    }
+    if(RS485_ReceivePacket(response, sizeof(response), MOTOR_WRITE_ECHO_TIMEOUT_MS) != HAL_OK)
+    {
+        return 0U;
+    }
+    return (memcmp(response, cmd, sizeof(cmd)) == 0) ? 1U : 0U;
+}
+
+static void motor_speed_set_confirmed(int16_t left_cmd, int16_t right_cmd)
+{
+    left_cmd = (left_cmd > MAX_RPM) ? MAX_RPM :
+               (left_cmd < -MAX_RPM) ? -MAX_RPM : left_cmd;
+    right_cmd = (right_cmd > MAX_RPM) ? MAX_RPM :
+                (right_cmd < -MAX_RPM) ? -MAX_RPM : right_cmd;
+
+    /* Preserve the proven right-first order, but consume each 0x06 echo. */
+    right_write_echo_ok = motor_write_speed_with_echo(2U, right_cmd);
+    if(right_write_echo_ok)
+    {
+        right_write_ok_count++;
+    }
+    else
+    {
+        right_write_fail_count++;
+    }
+
+    left_write_echo_ok = motor_write_speed_with_echo(1U, left_cmd);
+    if(left_write_echo_ok)
+    {
+        left_write_ok_count++;
+    }
+    else
+    {
+        left_write_fail_count++;
+    }
+    motor_write_sequence++;
+}
+
 static void rc_safety_stop_update(uint32_t now)
 {
     if(!rc_zero_command_sent ||
        (now - rc_last_zero_command_tick) >= RC_ZERO_REFRESH_MS)
     {
         telemetry_control_command_begin();
-        speed_set(0, 0);
+        motor_speed_set_confirmed(0, 0);
         telemetry_control_command_end();
         motor_speed_command_invalidate();
         rc_zero_command_sent = 1;
@@ -1732,7 +1796,7 @@ static void motor_speed_control_update(int16_t left_cmd, int16_t right_cmd)
     if(urgent_command || refresh_due)
     {
         telemetry_control_command_begin();
-        speed_set(left_cmd, right_cmd);
+        motor_speed_set_confirmed(left_cmd, right_cmd);
         telemetry_control_command_end();
 
         motor_last_left_cmd = left_cmd;
@@ -1842,7 +1906,7 @@ static void telemetry_send(void)
     uint32_t now = HAL_GetTick();
     uint32_t rc_age_ms = rc_last_valid_frame_tick == 0U ? 0U : (now - rc_last_valid_frame_tick);
     int len = snprintf(line, sizeof(line),
-                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d}\r\n",
+                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu}\r\n",
                        (unsigned long)now,
                        left,
                        right,
@@ -1876,7 +1940,12 @@ static void telemetry_send(void)
                        (unsigned int)sbus_failsafe,
                        current_speed_rpm,
                        telemetry_state_text(),
-                       lift_height_mm);
+                       lift_height_mm,
+                       (unsigned long)motor_write_sequence,
+                       (unsigned int)left_write_echo_ok,
+                       (unsigned int)right_write_echo_ok,
+                       (unsigned long)left_write_fail_count,
+                       (unsigned long)right_write_fail_count);
 
     if(len > 0 && len < (int)sizeof(line))
     {

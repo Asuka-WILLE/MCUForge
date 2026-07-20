@@ -162,6 +162,11 @@ CSV_FIELDS = [
     "speed_mps",
     "state",
     "height_mm",
+    "motor_write_sequence",
+    "left_write_echo_ok",
+    "right_write_echo_ok",
+    "left_write_fail_count",
+    "right_write_fail_count",
     "left_torque",
     "right_torque",
 ]
@@ -763,6 +768,11 @@ class TelemetryMonitor(tk.Tk):
             "speed_mps": None if speed is None else round(speed, 6),
             "state": state,
             "height_mm": height,
+            "motor_write_sequence": cls._optional_int(data, "motor_write_sequence"),
+            "left_write_echo_ok": cls._optional_int(data, "left_write_echo_ok"),
+            "right_write_echo_ok": cls._optional_int(data, "right_write_echo_ok"),
+            "left_write_fail_count": cls._optional_int(data, "left_write_fail_count"),
+            "right_write_fail_count": cls._optional_int(data, "right_write_fail_count"),
             "left_torque": cls._optional_float(data, "left_torque"),
             "right_torque": cls._optional_float(data, "right_torque"),
         }
