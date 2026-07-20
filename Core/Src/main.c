@@ -103,6 +103,9 @@
 #define STRAIGHT_SYNC_FILTER_ALPHA           0.5f
 #define STRAIGHT_SYNC_ERROR_THRESHOLD_RPM    1.5f
 #define STRAIGHT_SYNC_MAX_TRIM_RPM           2
+#define STRAIGHT_SYNC_LAUNCH_WINDOW_MS      1000U
+#define STRAIGHT_SYNC_LAUNCH_MOVING_MAX_TRIM_RPM 8
+#define STRAIGHT_SYNC_LAUNCH_TRIM_GAIN       0.6f
 #define STRAIGHT_SYNC_LAUNCH_FAST_RPM         4
 #define STRAIGHT_SYNC_LAUNCH_STALLED_RPM      1
 #define STRAIGHT_SYNC_LAUNCH_HOLD_RPM          8
@@ -243,6 +246,8 @@ typedef struct
     float filtered_error;
     int16_t trim;
     uint32_t last_feedback_sequence;
+    uint32_t launch_start_tick;
+    int8_t launch_direction;
 } StraightSyncController;
 
 typedef struct
@@ -1194,11 +1199,15 @@ static void straight_sync_reset(void)
     straight_sync.filtered_error = 0.0f;
     straight_sync.trim = 0;
     straight_sync.last_feedback_sequence = wheel_feedback_sequence;
+    straight_sync.launch_start_tick = 0U;
+    straight_sync.launch_direction = 0;
 }
 
 static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t now)
 {
-    uint8_t straight_running;
+    uint8_t straight_command;
+    uint8_t feedback_fresh;
+    uint8_t launch_window_active;
     int8_t travel_direction;
 
     if(left_cmd == NULL || right_cmd == NULL)
@@ -1206,18 +1215,36 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
         return;
     }
 
-    straight_running = (caster_alignment.state == CASTER_ALIGN_IDLE &&
+    straight_command = (caster_alignment.state == CASTER_ALIGN_IDLE &&
                         motor_conditioned_steer == 0 &&
                         abs(*left_cmd) >= STRAIGHT_SYNC_MIN_COMMAND_RPM &&
                         abs(*right_cmd) >= STRAIGHT_SYNC_MIN_COMMAND_RPM &&
                         ((*left_cmd > 0 && *right_cmd > 0) ||
-                         (*left_cmd < 0 && *right_cmd < 0)) &&
-                        (now - left_feedback_tick) <= STRAIGHT_SYNC_FEEDBACK_MAX_AGE_MS &&
-                        (now - right_feedback_tick) <= STRAIGHT_SYNC_FEEDBACK_MAX_AGE_MS);
+                         (*left_cmd < 0 && *right_cmd < 0)));
 
-    if(!straight_running)
+    if(!straight_command)
     {
         straight_sync_reset();
+        return;
+    }
+
+    travel_direction = (*left_cmd > 0) ? 1 : -1;
+    if(straight_sync.launch_start_tick == 0U ||
+       straight_sync.launch_direction != travel_direction)
+    {
+        straight_sync.launch_start_tick = now;
+        straight_sync.launch_direction = travel_direction;
+    }
+    launch_window_active = ((now - straight_sync.launch_start_tick) <=
+                            STRAIGHT_SYNC_LAUNCH_WINDOW_MS);
+
+    feedback_fresh = ((now - left_feedback_tick) <= STRAIGHT_SYNC_FEEDBACK_MAX_AGE_MS &&
+                      (now - right_feedback_tick) <= STRAIGHT_SYNC_FEEDBACK_MAX_AGE_MS);
+    if(!feedback_fresh)
+    {
+        straight_sync.filtered_error = 0.0f;
+        straight_sync.trim = 0;
+        straight_sync.last_feedback_sequence = wheel_feedback_sequence;
         return;
     }
 
@@ -1229,7 +1256,6 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
         float travel_right_rpm;
 
         straight_sync.last_feedback_sequence = wheel_feedback_sequence;
-        travel_direction = (*left_cmd > 0) ? 1 : -1;
         travel_left_rpm = (float)(travel_direction * physical_left_rpm);
         travel_right_rpm = (float)(travel_direction * physical_right_rpm);
 
@@ -1264,11 +1290,23 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
 
             if(straight_sync.filtered_error >= STRAIGHT_SYNC_ERROR_THRESHOLD_RPM)
             {
-                straight_sync.trim = STRAIGHT_SYNC_MAX_TRIM_RPM;
+                int16_t trim_limit = launch_window_active ?
+                                     STRAIGHT_SYNC_LAUNCH_MOVING_MAX_TRIM_RPM :
+                                     STRAIGHT_SYNC_MAX_TRIM_RPM;
+                trim_limit = int16_clamp(trim_limit, 1, (int16_t)(abs(*left_cmd) - 1));
+                int16_t trim_magnitude = (int16_t)(
+                    straight_sync.filtered_error * STRAIGHT_SYNC_LAUNCH_TRIM_GAIN + 0.5f);
+                straight_sync.trim = int16_clamp(trim_magnitude, 1, trim_limit);
             }
             else if(straight_sync.filtered_error <= -STRAIGHT_SYNC_ERROR_THRESHOLD_RPM)
             {
-                straight_sync.trim = -STRAIGHT_SYNC_MAX_TRIM_RPM;
+                int16_t trim_limit = launch_window_active ?
+                                     STRAIGHT_SYNC_LAUNCH_MOVING_MAX_TRIM_RPM :
+                                     STRAIGHT_SYNC_MAX_TRIM_RPM;
+                trim_limit = int16_clamp(trim_limit, 1, (int16_t)(abs(*right_cmd) - 1));
+                int16_t trim_magnitude = (int16_t)(
+                    -straight_sync.filtered_error * STRAIGHT_SYNC_LAUNCH_TRIM_GAIN + 0.5f);
+                straight_sync.trim = (int16_t)-int16_clamp(trim_magnitude, 1, trim_limit);
             }
             else
             {
@@ -1941,8 +1979,11 @@ static void telemetry_send(void)
     uint32_t rc_link_age_ms = rc_last_link_frame_tick == 0U ? 0U : (now - rc_last_link_frame_tick);
     uint32_t left_speed_age_ms = left_feedback_tick == 0U ? 0U : (now - left_feedback_tick);
     uint32_t right_speed_age_ms = right_feedback_tick == 0U ? 0U : (now - right_feedback_tick);
+    uint8_t sync_launch_active = (straight_sync.launch_start_tick != 0U &&
+                                  (now - straight_sync.launch_start_tick) <=
+                                  STRAIGHT_SYNC_LAUNCH_WINDOW_MS);
     int len = snprintf(line, sizeof(line),
-                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_link_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"speed_pair_sequence\":%lu,\"left_speed_age_ms\":%lu,\"right_speed_age_ms\":%lu,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu}\r\n",
+                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"sync_launch_active\":%u,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_link_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"speed_pair_sequence\":%lu,\"left_speed_age_ms\":%lu,\"right_speed_age_ms\":%lu,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu}\r\n",
                        (unsigned long)now,
                        left,
                        right,
@@ -1964,6 +2005,7 @@ static void telemetry_send(void)
                        pc_test_status_text(),
                        straight_sync.trim,
                        (long)(straight_sync.filtered_error * 100.0f),
+                       (unsigned int)sync_launch_active,
                        (unsigned int)rc_ready,
                        (unsigned long)rc_age_ms,
                        (unsigned long)rc_link_age_ms,
