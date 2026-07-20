@@ -1231,16 +1231,20 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
     uint8_t feedback_fresh;
     uint8_t launch_window_active;
     int8_t travel_direction;
+    int16_t minimum_command_rpm;
+    int16_t minimum_remaining_rpm;
 
     if(left_cmd == NULL || right_cmd == NULL)
     {
         return;
     }
 
+    minimum_command_rpm = neutral_stop.active ? 1 : STRAIGHT_SYNC_MIN_COMMAND_RPM;
+    minimum_remaining_rpm = neutral_stop.active ? 0 : 1;
     straight_command = (caster_alignment.state == CASTER_ALIGN_IDLE &&
                         motor_conditioned_steer == 0 &&
-                        abs(*left_cmd) >= STRAIGHT_SYNC_MIN_COMMAND_RPM &&
-                        abs(*right_cmd) >= STRAIGHT_SYNC_MIN_COMMAND_RPM &&
+                        abs(*left_cmd) >= minimum_command_rpm &&
+                        abs(*right_cmd) >= minimum_command_rpm &&
                         ((*left_cmd > 0 && *right_cmd > 0) ||
                          (*left_cmd < 0 && *right_cmd < 0)));
 
@@ -1338,7 +1342,8 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
                 int16_t trim_limit = launch_window_active ?
                                      STRAIGHT_SYNC_LAUNCH_MOVING_MAX_TRIM_RPM :
                                      STRAIGHT_SYNC_MAX_TRIM_RPM;
-                trim_limit = int16_clamp(trim_limit, 1, (int16_t)(abs(*left_cmd) - 1));
+                trim_limit = int16_clamp(
+                    trim_limit, 1, (int16_t)(abs(*left_cmd) - minimum_remaining_rpm));
                 int16_t trim_magnitude = (int16_t)(
                     straight_sync.filtered_error * STRAIGHT_SYNC_LAUNCH_TRIM_GAIN + 0.5f);
                 straight_sync.trim = int16_clamp(trim_magnitude, 1, trim_limit);
@@ -1348,7 +1353,8 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
                 int16_t trim_limit = launch_window_active ?
                                      STRAIGHT_SYNC_LAUNCH_MOVING_MAX_TRIM_RPM :
                                      STRAIGHT_SYNC_MAX_TRIM_RPM;
-                trim_limit = int16_clamp(trim_limit, 1, (int16_t)(abs(*right_cmd) - 1));
+                trim_limit = int16_clamp(
+                    trim_limit, 1, (int16_t)(abs(*right_cmd) - minimum_remaining_rpm));
                 int16_t trim_magnitude = (int16_t)(
                     -straight_sync.filtered_error * STRAIGHT_SYNC_LAUNCH_TRIM_GAIN + 0.5f);
                 straight_sync.trim = (int16_t)-int16_clamp(trim_magnitude, 1, trim_limit);
