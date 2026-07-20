@@ -120,7 +120,7 @@
 #define RC_STICK_NEUTRAL_DEADZONE  60
 #define RC_STICK_JUMP_THRESHOLD    350
 #define RC_STICK_JUMP_CONFIRM_FRAMES 2U
-#define RC_STICK_JUMP_CONFIRM_TOLERANCE 350
+#define RC_STICK_JUMP_CONFIRM_TOLERANCE 800
 #define RC_LCD_REFRESH_MS          250U
 #define RC_LCD_FONT_SIZE           16U
 #define RC_LCD_ROW_STEP            20U
@@ -312,6 +312,7 @@ static int16_t rc_jump_candidate_ch3=RC_CH3_CENTER;
 static int16_t rc_jump_candidate_ch4=RC_CH4_CENTER;
 static uint8_t rc_jump_confirm_count=0;
 static uint32_t rc_last_valid_frame_tick=0;
+static uint32_t rc_last_link_frame_tick=0;
 static uint32_t rc_not_ready_since_tick=0;
 static uint32_t rc_last_zero_command_tick=0;
 static uint8_t rc_zero_command_sent=0;
@@ -1937,10 +1938,11 @@ static void telemetry_send(void)
     static char line[TELEMETRY_LINE_MAX];
     uint32_t now = HAL_GetTick();
     uint32_t rc_age_ms = rc_last_valid_frame_tick == 0U ? 0U : (now - rc_last_valid_frame_tick);
+    uint32_t rc_link_age_ms = rc_last_link_frame_tick == 0U ? 0U : (now - rc_last_link_frame_tick);
     uint32_t left_speed_age_ms = left_feedback_tick == 0U ? 0U : (now - left_feedback_tick);
     uint32_t right_speed_age_ms = right_feedback_tick == 0U ? 0U : (now - right_feedback_tick);
     int len = snprintf(line, sizeof(line),
-                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"speed_pair_sequence\":%lu,\"left_speed_age_ms\":%lu,\"right_speed_age_ms\":%lu,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu}\r\n",
+                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_link_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"speed_pair_sequence\":%lu,\"left_speed_age_ms\":%lu,\"right_speed_age_ms\":%lu,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu}\r\n",
                        (unsigned long)now,
                        left,
                        right,
@@ -1964,6 +1966,7 @@ static void telemetry_send(void)
                        (long)(straight_sync.filtered_error * 100.0f),
                        (unsigned int)rc_ready,
                        (unsigned long)rc_age_ms,
+                       (unsigned long)rc_link_age_ms,
                        (unsigned long)rc_frame_lost_count,
                        (unsigned long)rc_not_ready_event_count,
                        (unsigned long)rc_recovery_count,
@@ -2082,7 +2085,7 @@ int main(void)
 		 * Do not let the SBUS driver's 30 ms byte watchdog override the outer
 		 * 60 ms valid-frame policy while control is healthy.
 		 */
-		if(!rc_ready || (now - rc_last_valid_frame_tick) > RC_TRUST_TIMEOUT_MS)
+		if(!rc_ready || (now - rc_last_link_frame_tick) > RC_TRUST_TIMEOUT_MS)
 		{
 			SBUS_TimeoutCheck();
 		}
@@ -2102,6 +2105,10 @@ int main(void)
 
 				int16_t ch[16] = {0};
 				SBUS_ParseChannels(local_buf, ch);
+				if(!local_failsafe && rc_control_channels_in_range(ch))
+				{
+					rc_last_link_frame_tick = now;
+				}
 				if(local_frame_lost)
 				{
 					rc_frame_lost_count++;
@@ -2210,7 +2217,7 @@ int main(void)
 						/* Safety stop is handled outside sbus_frame_ok as well. */
 				}
 		}
-		if(rc_ready && (now - rc_last_valid_frame_tick) > RC_TRUST_TIMEOUT_MS)
+		if(rc_ready && (now - rc_last_link_frame_tick) > RC_TRUST_TIMEOUT_MS)
 		{
 			rc_enter_not_ready(now, RC_STOP_REASON_TIMEOUT);
 		}
