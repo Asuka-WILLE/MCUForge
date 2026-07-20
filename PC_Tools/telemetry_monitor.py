@@ -964,8 +964,8 @@ def run_headless(
                         and not normalized["pc_test_active"]
                         and normalized["target_linear"] == 0
                         and normalized["target_steer"] == 0
-                        and (normalized["left_rpm_abs"] or 0) == 0
-                        and (normalized["right_rpm_abs"] or 0) == 0
+                        and (normalized["left_rpm_abs"] or 0) <= 0.5
+                        and (normalized["right_rpm_abs"] or 0) <= 0.5
                     )
 
                     if not sequence_waiting:
