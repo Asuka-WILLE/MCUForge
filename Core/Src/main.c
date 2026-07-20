@@ -102,6 +102,7 @@
 #define STRAIGHT_SYNC_MIN_COMMAND_RPM        5
 #define STRAIGHT_SYNC_FEEDBACK_MAX_AGE_MS    150U
 #define STRAIGHT_SYNC_PAIR_MAX_SKEW_MS        80U
+#define STRAIGHT_SYNC_TAIL_FEEDBACK_MAX_AGE_MS 80U
 #define STRAIGHT_SYNC_FILTER_ALPHA           0.7f
 #define STRAIGHT_SYNC_ERROR_THRESHOLD_RPM    1.5f
 #define STRAIGHT_SYNC_MAX_TRIM_RPM           2
@@ -254,6 +255,7 @@ typedef struct
     int16_t trim;
     uint32_t last_left_feedback_sequence;
     uint32_t last_right_feedback_sequence;
+    uint32_t last_any_feedback_sequence;
     uint32_t pair_sequence;
     uint32_t pair_skew_ms;
     uint32_t launch_start_tick;
@@ -1220,6 +1222,7 @@ static void straight_sync_reset(void)
     straight_sync.trim = 0;
     straight_sync.last_left_feedback_sequence = left_feedback_sequence;
     straight_sync.last_right_feedback_sequence = right_feedback_sequence;
+    straight_sync.last_any_feedback_sequence = wheel_feedback_sequence;
     straight_sync.pair_skew_ms = 0U;
     straight_sync.launch_start_tick = 0U;
     straight_sync.launch_direction = 0;
@@ -1230,6 +1233,8 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
     uint8_t straight_command;
     uint8_t feedback_fresh;
     uint8_t launch_window_active;
+    uint8_t paired_update_ready;
+    uint8_t tail_update_ready;
     int8_t travel_direction;
     int16_t minimum_command_rpm;
     int16_t minimum_remaining_rpm;
@@ -1272,6 +1277,7 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
         straight_sync.trim = 0;
         straight_sync.last_left_feedback_sequence = left_feedback_sequence;
         straight_sync.last_right_feedback_sequence = right_feedback_sequence;
+        straight_sync.last_any_feedback_sequence = wheel_feedback_sequence;
         straight_sync.pair_skew_ms = 0U;
         return;
     }
@@ -1281,8 +1287,16 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
      * sample.  Comparing one fresh sample with the other wheel's cached value
      * created false launch errors as large as 14 RPM on the shared RS485 bus.
      */
-    if(straight_sync.last_left_feedback_sequence != left_feedback_sequence &&
-       straight_sync.last_right_feedback_sequence != right_feedback_sequence)
+    paired_update_ready =
+        (straight_sync.last_left_feedback_sequence != left_feedback_sequence &&
+         straight_sync.last_right_feedback_sequence != right_feedback_sequence);
+    tail_update_ready =
+        (neutral_stop.active &&
+         (now - left_feedback_tick) <= STRAIGHT_SYNC_TAIL_FEEDBACK_MAX_AGE_MS &&
+         (now - right_feedback_tick) <= STRAIGHT_SYNC_TAIL_FEEDBACK_MAX_AGE_MS &&
+         straight_sync.last_any_feedback_sequence != wheel_feedback_sequence);
+
+    if(paired_update_ready || tail_update_ready)
     {
         uint32_t feedback_skew_ms = (left_feedback_tick >= right_feedback_tick) ?
                                     (left_feedback_tick - right_feedback_tick) :
@@ -1298,9 +1312,13 @@ static void straight_sync_apply(int16_t *left_cmd, int16_t *right_cmd, uint32_t 
             return;
         }
 
-        straight_sync.last_left_feedback_sequence = left_feedback_sequence;
-        straight_sync.last_right_feedback_sequence = right_feedback_sequence;
-        straight_sync.pair_sequence++;
+        straight_sync.last_any_feedback_sequence = wheel_feedback_sequence;
+        if(paired_update_ready)
+        {
+            straight_sync.last_left_feedback_sequence = left_feedback_sequence;
+            straight_sync.last_right_feedback_sequence = right_feedback_sequence;
+            straight_sync.pair_sequence++;
+        }
         travel_left_rpm = (float)travel_direction * ((float)left_speed_x10 / 10.0f);
         travel_right_rpm = (float)travel_direction * ((float)(-right_speed_x10) / 10.0f);
 
