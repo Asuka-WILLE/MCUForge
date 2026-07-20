@@ -111,6 +111,9 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | `SystemClock_Config()` | 配置 STM32H723 系统时钟，当前主频配置为 480 MHz。 |
 | `telemetry_process()` | 每 50 ms 通过 USB CDC 发送缓存的 JSON 遥测帧，并在后台推进非阻塞 Modbus 查询状态机。 |
 | `telemetry_process_poll_only()` | 主循环开头只轮询已有遥测回包，不新发查询，避免影响随后到来的遥控控制命令。 |
+| `motor_write_speed_with_echo()` | 写入单台驱动器 `0x2318` 后接收并逐字节校验 Modbus `0x06` 应答。 |
+| `motor_speed_set_confirmed()` | 保持右轮先发，在后台查询、右轮应答和左轮写入之间保留 2 ms 静默间隔，并统计两轮写入成功/失败。 |
+| `straight_sync_apply()` | 直线运动时依据新鲜轮速反馈只削减跑在前面的轮子；单轮先启动时动态限制快轮，两轮都启动后退回小幅同步修正。 |
 | `joystick_deadzone()` | 摇杆死区处理函数，当前未在主循环中使用。 |
 | `accel_limit()` | 速度变化限幅函数，当前未在主循环中使用。 |
 
@@ -183,7 +186,7 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | `left` / `right` | `Core/Src/main.c` | 最近一次 USB 遥测读取到的左右轮反馈转速。 |
 | `current_speed_rpm` | `Core/Src/main.c` | 当前移动速度，按左右轮安装方向修正后计算为 `(left - right) / 2`，单位 rpm。 |
 | `lift_height_mm` | `Core/Src/main.c` | 升降机构高度，单位 mm；读取失败时为 `-1`。 |
-| `telemetry_query_state` | `Core/Src/main.c` | 后台遥测查询状态机，按左轮、右轮、升降高度顺序非阻塞推进。 |
+| `telemetry_query_state` | `Core/Src/main.c` | 后台遥测查询状态机；左右轮每 30 ms 交替查询，升降高度每 500 ms 插入一次，控制写入始终优先。 |
 | `telemetry_failsafe` | `Core/Src/main.c` | USB 遥测使用的遥控失联状态标志。 |
 | `emergency_stop` | `Core/Src/main.c` | 软件急停状态标志。 |
 | `en_flag` | `Core/Src/main.c` | 电机使能状态标志。 |
@@ -247,9 +250,13 @@ speed_set(desired_left_rpm, -desired_right_rpm);
 | `pc_test_*` | 受限 USB 实机测试的目标、剩余时间和执行状态。 |
 | `sync_trim` / `sync_error_x100` | 直线左右轮同步修正量和滤波误差。 |
 | `rc_ready` / `rc_ch3` / `rc_ch4` / `rc_ch6` | 遥控可信状态和关键通道值。 |
+| `rc_age_ms` / `rc_frame_lost_count` | 最近可信 SBUS 帧年龄及孤立丢帧累计值；单次 `frame_lost` 只记录，不再触发隐藏停车/恢复。 |
+| `rc_stop_count` / `rc_recovery_count` / `rc_stop_reason` | 遥控真正失效、恢复次数及最近停机原因。 |
 | `sbus_failsafe` | SBUS 失联/超时标志。 |
 | `state` | 运行状态：`RUN`、`DISABLED`、`ESTOP`、`FAILSAFE`。 |
 | `height_mm` | 升降机构高度，单位 mm；读取失败时为 `-1`。 |
+| `speed_pair_sequence` / `left_speed_age_ms` / `right_speed_age_ms` | 轮速反馈更新序号及左右缓存年龄，用于识别陈旧读数。 |
+| `motor_write_sequence` / `*_write_echo_ok` / `*_write_fail_count` | 双轮速度写入序号、最近应答状态及累计最终失败次数。 |
 
 ## 电脑端监控程序
 
@@ -320,17 +327,17 @@ python PC_Tools\telemetry_monitor.py --headless --port COM3 --reversal-cycles 3 
 8. 收到完整 SBUS 帧后，关中断复制 `sbus_buf`，再开中断解析本地帧。
 9. 如果 `CH6 > 1500`，立即电机急停并停止升降。
 10. 如果 `CH6 < 500`，执行电机使能与清急停。
-11. 根据 `CH3`、`CH4` 计算左右轮目标转速；转速变化达到 `3 rpm` 或跨过零点时立即调用 `speed_set()`，小幅抖动/未变化时每约 100 ms 刷新一次速度命令。
+11. 根据 `CH3`、`CH4` 得到底盘线速度和转向目标，先经公共 20 ms S 曲线，再解算左右轮；摇杆归中立即锁存零目标，轨迹只允许继续向零减速。
 12. 根据 `CH8` 控制升降机构上升、下降或停止。
 13. 主循环开头先快速轮询已有遥测回包，不新发查询，确保随后遥控控制命令优先执行。
-14. 主循环末尾推进后台遥测状态机，每约 `60 ms` 只查询一个设备，按左轮、右轮、升降高度轮换。
+14. 主循环末尾推进后台遥测状态机：左右轮每 `30 ms` 交替查询，单轮通常约 `60 ms` 更新一次；升降高度每 `500 ms` 查询一次。
 15. USB CDC 每约 50 ms 发送一次 JSON 遥测帧；若某次查询超时或 CRC 错误，继续使用上一次缓存值。
 
 ## 注意事项
 
 1. 每次软件使能都会对站号 1、2 写入统一的零速目标、速度模式和加减速参数，不再依赖驱动器历史保存值。
-2. `SBUS_TimeoutCheck()` 已经能把超时视为 failsafe，但 `main()` 中 failsafe 分支里的 `motor_emergency_stop()`、`lift_stop()` 目前被注释。因此现在信号丢失时不会主动急停，这是后续应该优先打开的安全逻辑。
-3. `joystick_deadzone()` 和 `accel_limit()` 已经写好，但当前速度控制没有使用死区和加速度限幅。摇杆中位漂移或速度突变明显时，应把这两个函数接入主循环。
+2. SBUS 单次 `frame_lost` 只作为诊断计数；接收机 `failsafe` 或连续 60 ms 没有可信帧才进入安全停车，持续 150 ms 后执行驱动器急停。
+3. `CH3`、`CH4` 已使用中位死区；线速度和转向量均经过限加速度、限减速度和限 jerk 的公共 S 曲线。
 4. `motor_read_speed()` 已接入 USB 遥测，LCD 显示代码仍保持注释，避免和电脑端监控重复。
 5. `change_station()` 会修改电机站号，不应在正常遥控运行时调用。
 6. 源码中部分中文注释存在编码显示异常，代码逻辑本身不受影响；后续整理注释时应统一文件编码，避免 CubeMX 再生成后继续乱码。
@@ -438,3 +445,12 @@ python PC_Tools\telemetry_monitor.py --headless --port COM3 --reversal-cycles 3 
 - 公共轨迹进入 2 RPM 低速尾段后统一锁零，并在随后 300 ms 内每 20 ms 重发双轮零速，降低丢帧或两轮静摩擦差异造成的单轮残速。
 - 正常停车不复位整条公共轨迹、不切换电机使能，也不等待旧加速度衰减后才接受新操作。
 - 实机调试确认：驱动器内部参数统一后，原 8 RPM 转向测试中的启动延迟和峰值差明显下降；内部减速时间缩短后，命令归零到双轮接近零的时间由约 2.90 秒缩短到约 0.25～0.35 秒。
+
+### v3.0 RS485 写入确认与自适应起步版
+
+- 修正 SBUS 单帧 `frame_lost` 被误判为完全失联的问题；孤立丢帧只计数，真正 failsafe 和持续超时仍立即进入安全停车。
+- 每次写入两台驱动器 `0x2318` 后接收、校验各自 `0x06` 应答；后台查询到右轮写、右轮应答到左轮写之间均保留 2 ms 静默间隔，消除了随机单轮保留旧目标。
+- 左右轮反馈改为 30 ms 交替读取，任意一轮获得新反馈都会唤醒同步器；反馈超过 150 ms 不参与修正。
+- 取消固定左右偏置。若一轮先克服静摩擦，只削减先动轮并动态限制到约 8 RPM；慢轮保留完整动力，两轮均运动后自动退回最大 2 RPM 的运行修正。
+- USB 受限直线测试扩展到 ±32 RPM；自动序列必须检测到两轮连续约 300 ms 为 0 RPM 才允许下一次零速启动，并支持提前发送 `STOP` 验证归中锁存。
+- 当前实测：±25 RPM、±32 RPM 各完成正反 5 次、每段运行 5 秒；停车尾段最大约 267 ms，速度写应答最终失败为 0。最大转向量松手后的残余旋转为 171～255 ms；四次提前归中测试均未出现零命令后再次运动命令。
