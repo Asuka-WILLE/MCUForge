@@ -123,6 +123,7 @@ typedef struct
 #define TELEMETRY_LIFT_TIMEOUT_MS  15U
 #define TELEMETRY_TX_TIMEOUT_MS    5U
 #define TELEMETRY_CONTROL_HOLDOFF_MS 5U
+#define TELEMETRY_PAIR_INTERFRAME_GAP_MS 2U
 #define MOTOR_HIGH_RES_SPEED_REG   0x500EU
 #define MOTOR_DIAGNOSTIC_START_REG 0x5002U
 #define MOTOR_DIAGNOSTIC_REG_COUNT 9U
@@ -260,6 +261,7 @@ volatile uint8_t telemetry_failsafe=0;
 static uint32_t telemetry_last_tick=0;
 static uint32_t telemetry_control_last_tick=0;
 static uint32_t telemetry_query_start_tick=0;
+static uint32_t telemetry_next_motor_send_tick=0;
 static uint32_t telemetry_legacy_query_tick=0;
 static uint32_t telemetry_high_res_query_tick=0;
 static uint32_t telemetry_diagnostic_query_tick=0;
@@ -981,10 +983,32 @@ static uint8_t telemetry_motor_query_is_pair(void)
             telemetry_motor_query_kind == TELEMETRY_MOTOR_QUERY_CONFIG);
 }
 
+static void telemetry_mark_motor_query_complete(uint32_t now)
+{
+    switch(telemetry_motor_query_kind)
+    {
+        case TELEMETRY_MOTOR_QUERY_HIGH_RES_SPEED:
+            telemetry_high_res_query_tick = now;
+            break;
+        case TELEMETRY_MOTOR_QUERY_DIAGNOSTIC:
+            telemetry_diagnostic_query_tick = now;
+            break;
+        case TELEMETRY_MOTOR_QUERY_POSITION:
+            telemetry_position_query_tick = now;
+            break;
+        case TELEMETRY_MOTOR_QUERY_CONFIG:
+            telemetry_config_query_tick = now;
+            break;
+        default:
+            break;
+    }
+}
+
 static void telemetry_abort_pending_query(void)
 {
     if(telemetry_query_state != TELEMETRY_QUERY_IDLE)
     {
+        telemetry_mark_motor_query_complete(HAL_GetTick());
         telemetry_query_state = TELEMETRY_QUERY_IDLE;
         telemetry_motor_query_kind = TELEMETRY_MOTOR_QUERY_NONE;
         telemetry_pair_left_valid = 0U;
@@ -1992,6 +2016,8 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
                     telemetry_pair_left_length = 0U;
                     if(telemetry_motor_query_is_pair())
                     {
+                        telemetry_next_motor_send_tick = now +
+                                                         TELEMETRY_PAIR_INTERFRAME_GAP_MS;
                         telemetry_query_state = TELEMETRY_SEND_RIGHT;
                     }
                     else
@@ -2034,6 +2060,8 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
                     {
                         memcpy(telemetry_pair_left_payload, payload, payload_len);
                     }
+                    telemetry_next_motor_send_tick = now +
+                                                     TELEMETRY_PAIR_INTERFRAME_GAP_MS;
                     telemetry_query_state = TELEMETRY_SEND_RIGHT;
                 }
                 telemetry_reset_rx_buffer();
@@ -2041,7 +2069,9 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
             break;
 
         case TELEMETRY_SEND_RIGHT:
-            if(allow_start && (now - telemetry_control_last_tick) >= TELEMETRY_CONTROL_HOLDOFF_MS)
+            if(allow_start &&
+               (int32_t)(now - telemetry_next_motor_send_tick) >= 0 &&
+               (now - telemetry_control_last_tick) >= TELEMETRY_CONTROL_HOLDOFF_MS)
             {
                 if(!telemetry_start_motor_query(2, TELEMETRY_WAIT_RIGHT))
                 {
@@ -2049,6 +2079,7 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
                     {
                         telemetry_commit_motor_pair(NULL, 0U, 0U, now);
                     }
+                    telemetry_mark_motor_query_complete(now);
                     telemetry_motor_query_kind = TELEMETRY_MOTOR_QUERY_NONE;
                     telemetry_query_state = TELEMETRY_QUERY_IDLE;
                 }
@@ -2079,6 +2110,7 @@ static void telemetry_service_query(uint32_t now, uint8_t allow_start)
                 {
                     telemetry_commit_motor_pair(payload, payload_len, valid, now);
                 }
+                telemetry_mark_motor_query_complete(now);
                 telemetry_motor_query_kind = TELEMETRY_MOTOR_QUERY_NONE;
                 telemetry_query_state = TELEMETRY_QUERY_IDLE;
                 telemetry_reset_rx_buffer();
