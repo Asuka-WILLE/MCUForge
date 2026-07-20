@@ -48,7 +48,8 @@
 #define TELEMETRY_PERIOD_MS 50U
 #define TELEMETRY_LINE_MAX  1024U
 #define TELEMETRY_RESPONSE_LEN 7U
-#define TELEMETRY_QUERY_PERIOD_MS 60U
+#define TELEMETRY_QUERY_PERIOD_MS 30U
+#define TELEMETRY_LIFT_QUERY_PERIOD_MS 500U
 #define TELEMETRY_MOTOR_TIMEOUT_MS 50U
 #define TELEMETRY_LIFT_TIMEOUT_MS  15U
 #define TELEMETRY_TX_TIMEOUT_MS    5U
@@ -98,7 +99,7 @@
 #define PC_TEST_REST_SPEED_RPM              2
 #define PC_TEST_RX_BUFFER_SIZE              64U
 #define STRAIGHT_SYNC_MIN_COMMAND_RPM        5
-#define STRAIGHT_SYNC_FEEDBACK_MAX_AGE_MS    400U
+#define STRAIGHT_SYNC_FEEDBACK_MAX_AGE_MS    150U
 #define STRAIGHT_SYNC_FILTER_ALPHA           0.5f
 #define STRAIGHT_SYNC_ERROR_THRESHOLD_RPM    1.5f
 #define STRAIGHT_SYNC_MAX_TRIM_RPM           2
@@ -192,6 +193,7 @@ int16_t lift_height_mm=-1;
 volatile uint8_t telemetry_failsafe=0;
 static uint32_t telemetry_last_tick=0;
 static uint32_t telemetry_last_query_tick=0;
+static uint32_t telemetry_last_lift_query_tick=0;
 static uint32_t telemetry_control_last_tick=0;
 static uint32_t telemetry_query_start_tick=0;
 static uint8_t telemetry_rx_buf[TELEMETRY_RESPONSE_LEN]={0};
@@ -728,11 +730,11 @@ static void telemetry_finish_lift_query(uint8_t response_ready)
 
 static void telemetry_advance_query_step(void)
 {
-    telemetry_query_step++;
-    if(telemetry_query_step >= 3)
+    if(telemetry_query_state == TELEMETRY_WAIT_LIFT)
     {
-        telemetry_query_step = 0;
+        return;
     }
+    telemetry_query_step = (telemetry_query_step == 0U) ? 1U : 0U;
 }
 
 static void telemetry_abort_pending_query(void)
@@ -750,17 +752,17 @@ static void telemetry_abort_pending_query(void)
 
 static void telemetry_schedule_current_step(void)
 {
-    switch(telemetry_query_step)
+    uint32_t now = HAL_GetTick();
+
+    if((now - telemetry_last_lift_query_tick) >= TELEMETRY_LIFT_QUERY_PERIOD_MS)
     {
-        case 0:
-            telemetry_query_state = TELEMETRY_SEND_LEFT;
-            break;
-        case 1:
-            telemetry_query_state = TELEMETRY_SEND_RIGHT;
-            break;
-        default:
-            telemetry_query_state = TELEMETRY_SEND_LIFT;
-            break;
+        telemetry_last_lift_query_tick = now;
+        telemetry_query_state = TELEMETRY_SEND_LIFT;
+    }
+    else
+    {
+        telemetry_query_state = (telemetry_query_step == 0U) ?
+                                TELEMETRY_SEND_LEFT : TELEMETRY_SEND_RIGHT;
     }
 }
 
@@ -1911,8 +1913,10 @@ static void telemetry_send(void)
     static char line[TELEMETRY_LINE_MAX];
     uint32_t now = HAL_GetTick();
     uint32_t rc_age_ms = rc_last_valid_frame_tick == 0U ? 0U : (now - rc_last_valid_frame_tick);
+    uint32_t left_speed_age_ms = left_feedback_tick == 0U ? 0U : (now - left_feedback_tick);
+    uint32_t right_speed_age_ms = right_feedback_tick == 0U ? 0U : (now - right_feedback_tick);
     int len = snprintf(line, sizeof(line),
-                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu}\r\n",
+                       "{\"tick_ms\":%lu,\"left_rpm\":%d,\"right_rpm\":%d,\"left_cmd\":%d,\"right_cmd\":%d,\"cmd_valid\":%u,\"target_linear\":%d,\"target_steer\":%d,\"conditioned_linear\":%d,\"conditioned_steer\":%d,\"caster_state\":\"%s\",\"traj_tick\":%lu,\"traj_speed_x100\":%ld,\"traj_accel_x100\":%ld,\"pc_test_active\":%u,\"pc_test_linear\":%d,\"pc_test_steer\":%d,\"pc_test_remaining_ms\":%lu,\"pc_test_status\":\"%s\",\"sync_trim\":%d,\"sync_error_x100\":%ld,\"rc_ready\":%u,\"rc_age_ms\":%lu,\"rc_frame_lost_count\":%lu,\"rc_stop_count\":%lu,\"rc_recovery_count\":%lu,\"rc_stop_reason\":%u,\"rc_ch3\":%d,\"rc_ch4\":%d,\"rc_ch6\":%d,\"sbus_failsafe\":%u,\"speed_rpm\":%d,\"state\":\"%s\",\"height_mm\":%d,\"speed_pair_sequence\":%lu,\"left_speed_age_ms\":%lu,\"right_speed_age_ms\":%lu,\"motor_write_sequence\":%lu,\"left_write_echo_ok\":%u,\"right_write_echo_ok\":%u,\"left_write_fail_count\":%lu,\"right_write_fail_count\":%lu}\r\n",
                        (unsigned long)now,
                        left,
                        right,
@@ -1947,6 +1951,9 @@ static void telemetry_send(void)
                        current_speed_rpm,
                        telemetry_state_text(),
                        lift_height_mm,
+                       (unsigned long)wheel_feedback_sequence,
+                       (unsigned long)left_speed_age_ms,
+                       (unsigned long)right_speed_age_ms,
                        (unsigned long)motor_write_sequence,
                        (unsigned int)left_write_echo_ok,
                        (unsigned int)right_write_echo_ok,
