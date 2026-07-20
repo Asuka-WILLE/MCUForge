@@ -857,6 +857,7 @@ def run_headless(
     test_steer=0,
     test_duration_ms=1200,
     test_sequence=None,
+    test_stop_after_ms=None,
 ):
     if duration_s <= 0:
         raise ValueError("duration 必须大于 0")
@@ -873,6 +874,8 @@ def run_headless(
             raise ValueError("test command exceeds firmware safety limits")
         if not 100 <= test_duration_ms <= 10000:
             raise ValueError("test duration must be between 100 and 10000 ms")
+        if test_stop_after_ms is not None and not 100 <= test_stop_after_ms < test_duration_ms:
+            raise ValueError("test stop delay must be shorter than test duration")
 
     session_dir = _create_session_dir(Path(output_dir).resolve() if output_dir else DATA_DIR)
     raw_path = session_dir / RAW_LOG_FILENAME
@@ -888,6 +891,7 @@ def run_headless(
         "test_steer": test_steer,
         "test_duration_ms": test_duration_ms if sequence else None,
         "test_sequence": sequence or None,
+        "test_stop_after_ms": test_stop_after_ms,
         "wheel_radius_m": WHEEL_RADIUS_M,
         "raw_log": RAW_LOG_FILENAME,
         "csv_log": CSV_LOG_FILENAME,
@@ -910,7 +914,10 @@ def run_headless(
     sequence_active_seen = False
     sequence_aborted = False
     sequence_send_time = 0.0
+    sequence_active_time = 0.0
+    sequence_stop_sent = False
     commands_sent = 0
+    stop_commands_sent = 0
     ready_samples = 0
     start = time.monotonic()
 
@@ -960,15 +967,36 @@ def run_headless(
                             sequence_waiting = True
                             sequence_active_seen = False
                             sequence_send_time = time.monotonic()
+                            sequence_active_time = 0.0
+                            sequence_stop_sent = False
                             ready_samples = 0
                     else:
                         if normalized["pc_test_active"]:
-                            sequence_active_seen = True
+                            if not sequence_active_seen:
+                                sequence_active_seen = True
+                                sequence_active_time = time.monotonic()
+                            if (
+                                test_stop_after_ms is not None
+                                and not sequence_stop_sent
+                                and (time.monotonic() - sequence_active_time) * 1000.0
+                                >= test_stop_after_ms
+                            ):
+                                serial_port.write(b"STOP\n")
+                                serial_port.flush()
+                                stop_commands_sent += 1
+                                sequence_stop_sent = True
                         elif sequence_active_seen:
-                            if normalized["pc_test_status"] == "DONE":
+                            stopped_as_requested = (
+                                test_stop_after_ms is not None
+                                and sequence_stop_sent
+                                and normalized["pc_test_status"] == "STOPPED"
+                            )
+                            if normalized["pc_test_status"] == "DONE" or stopped_as_requested:
                                 sequence_index += 1
                                 sequence_waiting = False
                                 sequence_active_seen = False
+                                sequence_active_time = 0.0
+                                sequence_stop_sent = False
                                 ready_samples = 0
                             elif normalized["pc_test_status"] in {
                                 "REJECTED",
@@ -1032,6 +1060,7 @@ def run_headless(
         "max_right_cmd_abs": max_right_cmd_abs,
         "test_sent": commands_sent > 0,
         "commands_sent": commands_sent,
+        "stop_commands_sent": stop_commands_sent,
         "sequence_requested": len(sequence),
         "sequence_completed": sequence_index,
         "sequence_aborted": sequence_aborted,
@@ -1053,6 +1082,7 @@ def main():
     parser.add_argument("--test-linear", type=int, help="受限实机测试线速度，范围 -32..32 RPM")
     parser.add_argument("--test-steer", type=int, default=0, help="受限实机测试转向量，范围 -32..32")
     parser.add_argument("--test-duration-ms", type=int, default=1200, help="受限实机测试持续时间，100..10000 ms")
+    parser.add_argument("--test-stop-after-ms", type=int, help="测试启动后提前发送 STOP 的延时，必须小于测试持续时间")
     parser.add_argument("--reversal-cycles", type=int, default=0, help="自动执行前进、停稳、后退循环，范围 1..10")
     parser.add_argument("--reversal-linear", type=int, default=20, help="换向测试速度绝对值，范围 1..32 RPM")
     args = parser.parse_args()
@@ -1093,6 +1123,7 @@ def main():
             args.test_steer,
             args.test_duration_ms,
             test_sequence,
+            args.test_stop_after_ms,
         )
 
     enable_high_dpi_awareness()
