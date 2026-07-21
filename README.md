@@ -36,6 +36,8 @@ Clone 本仓库后，不需要额外复制工程文件，可以直接从下面�
 - `C:\Users\hz_wu\Desktop\轮式人形资料\2.4G 十通道遥控器资料`
 - `C:\Users\hz_wu\Desktop\轮式人形资料\轮毂电机\和利时电机资料`
 - `C:\Users\hz_wu\Desktop\轮式人形资料\升降机构\升降机构使用手册.pdf`
+- MC-02 官方 BMI088 例程：`C:\Users\hz_wu\Desktop\轮式人形资料\MC02开发板\dm-mc02-master\例程\CtrBoard-H7_IMU`
+- 社区 BSP 参考：<https://github.com/yssickjgd/damiao_mc02_bsp>
 
 其中，UM 系列伺服轮毂一体机资料说明该电机将轮毂电机与 DS 系列伺服驱动器合为一体，支持 RS485/Modbus 通讯控制。本工程使用的站号为左轮 `1`、右轮 `2`。
 
@@ -57,6 +59,7 @@ Clone 本仓库后，不需要额外复制工程文件，可以直接从下面�
 9. 通过 USB CDC 虚拟串口周期上报左轮反馈转速、右轮反馈转速、当前移动速度、运行状态和升降高度。
 10. 电脑端提供 `PC_Tools/telemetry_monitor.py` 实时监控程序，左侧显示关键数据，右侧显示左轮、右轮和总速度曲线。
 11. 上电后只向升降机构发送一次停止命令，不自动升降。
+12. 已接入 MC-02 板载 BMI088 的 SPI2 底层驱动和 `IMU_Init()` / `IMU_Poll()` / `IMU_CopyLatest()` 接口；初始化与采样调用暂时注释，不改变当前控制和 USB 遥测行为。
 
 ## 硬件与串口分配
 
@@ -68,7 +71,10 @@ Clone 本仓库后，不需要额外复制工程文件，可以直接从下面�
 | USB 虚拟串口 | USB_OTG_HS 内部 FS PHY + USB_DEVICE CDC | 48 MHz USB 时钟，CDC ACM | `USB_DEVICE/`、`Middlewares/` | Type-C 连接电脑，发送实时遥测 |
 | 调试串口 | USART1 | 115200 bps，8N1 | `Core/Src/usart.c` | 预留调试输出 |
 | LCD | SPI1 | 主机发送 | `Core/Src/lcd.c` | 显示 SBUS、使能、失联和目标状态 |
+| 板载 BMI088 | SPI2 | Mode 3，7.5 Mbit/s；PC0/PC3 片选，PE10/PE12 数据就绪 | `Core/Src/imu.c` | 原始加速度、角速度和温度接口；当前未启用采样 |
 | ADC 按键 | ADC1 + DMA | PA5 / ADC1_INP19 | `Core/Src/adc.c` | 已初始化，当前主控制逻辑未使用 |
+
+BMI088 使用 `PB13` 作为 SPI2 时钟，因此 UART5 已改为只接收 SBUS（`PD2/UART5_RX`）；工程没有 UART5 发送调用。
 
 RS485 方向控制引脚：
 
@@ -118,6 +124,16 @@ motor_speed_control_update(desired_left_rpm, -desired_right_rpm);
 | `motor_speed_set_confirmed()` | 保持右轮先发，在后台查询、右轮应答和左轮写入之间保留 2 ms 静默间隔，并统计两轮写入成功/失败。 |
 | `straight_sync_apply()` | 直线启动时只使用左右轮成对的新鲜 `0.1 rpm` 反馈并削减快轮；停车尾段允许在两侧缓存均不老于 80 ms 时随任一新反馈更新，只把仍在运动的轮子继续削向零。 |
 | `joystick_deadzone()` | 对 CH3/CH4 做中位死区处理。 |
+
+### `imu.c`
+
+| 函数 | 作用 |
+| --- | --- |
+| `IMU_Init()` | 检查 BMI088 加速度计/陀螺仪芯片 ID，软复位并写入经回读校验的 ±3 g、±2000 °/s 配置；失败直接返回错误，不死循环。 |
+| `IMU_Poll()` | 最快每 10 ms 读取一次原始三轴加速度、三轴角速度和温度，换算为 `m/s²`、`rad/s`、`°C`。 |
+| `IMU_CopyLatest()` | 向后续 USB CDC 或姿态算法复制最近一组有效样本及时间戳、序号。 |
+
+`main.c` 中的 `IMU_Init()` 与 `IMU_Poll()` 调用目前均被注释。当前样本保持 BMI088 芯片原生坐标轴，尚未加入板体坐标变换、静态零偏标定、姿态融合或 USB 字段。温控加热同样未实现、未使能。
 
 ### `SBUS.c`
 
@@ -216,6 +232,8 @@ motor_speed_control_update(desired_left_rpm, -desired_right_rpm);
 ## USB 遥测协议
 
 单片机通过 USB CDC 虚拟串口每约 50 ms 发送一行 UTF-8 JSON，以 `\r\n` 结尾。示例：
+
+当前 USB JSON 保持生产版协议不变，尚不发送 IMU 数据。后续启用时建议先调用 `IMU_CopyLatest()`，再增加 `imu_ax/ay/az`、`imu_gx/gy/gz`、`imu_temp_c`、`imu_seq` 和 `imu_age_ms` 字段，并同步修改 `PC_Tools/telemetry_monitor.py`。
 
 ```json
 {"left_rpm":12,"right_rpm":-11,"left_rpm_x10":120,"right_rpm_x10":-111,"left_cmd":12,"right_cmd":-12,"sync_trim":0,"rc_ready":1,"rc_ch6":192,"sbus_failsafe":0,"state":"RUN","height_mm":245}
@@ -320,6 +338,8 @@ PC 工具只读取 USB CDC 遥测，不再向单片机发送运动或停止命�
 2. SBUS 单次 `frame_lost` 只作为诊断计数；接收机 `failsafe` 或连续 60 ms 没有可信帧才进入安全停车，持续 150 ms 后执行驱动器急停。
 3. `CH3`、`CH4` 已使用中位死区；线速度和转向量均经过限加速度、限减速度和限 jerk 的公共 S 曲线。
 4. USB CDC 接收端不再解析任何运动命令，电脑端工具也是纯被动遥测记录器。
+5. MC-02 的 IMU 加热回路直接接入 24 V；当前工程没有配置或开启加热 PWM。完成 BMI088 原始数据实机验证和温控安全检查前，不要启用加热。
+6. 当前仅初始化 SPI2 外设并保持 BMI088 两个片选为高；`IMU_Init()` 与 `IMU_Poll()` 仍被注释，因此不会增加主循环阻塞或改变电机控制时序。
 5. 源码中部分中文注释存在编码显示异常，代码逻辑本身不受影响；后续整理注释时应统一文件编码，避免 CubeMX 再生成后继续乱码。
 
 ## 建议的下一步改进
@@ -451,5 +471,12 @@ PC 工具只读取 USB CDC 遥测，不再向单片机发送运动或停止命�
 
 - 删除 USB `MOVE/STOP` 运动注入、禁用的台架循环、已绕过的万向轮归正状态机、主动测试 CLI 和未调用的旧电机接口；正常 SBUS、S 曲线、归中停车、直线同步、写应答及驱动器诊断参数不变。
 - 电脑端工具改为纯被动遥测记录器，连接 USB CDC 不会向车辆发送运动或停止命令。
+
+### v3.3 MC-02 BMI088 预留接口版
+
+- 根据 MC-02 官方 `CtrBoard-H7_IMU` 例程接入板载 BMI088 的 SPI2 引脚、Mode 3/7.5 Mbit/s 配置和基础寄存器驱动。
+- UART5 收敛为 SBUS 纯接收，释放复用的 PB13 给 SPI2 时钟；现有遥控接收路径保持不变。
+- 新增带状态码、时间戳和样本序号的 `IMU_Init()`、`IMU_Poll()`、`IMU_CopyLatest()` 接口，默认调用保持注释。
+- 暂不启用 IMU 加热、EXTI/DMA、姿态融合或 USB 遥测字段，后续按单一变量逐步开放。
 - 清理固件于 16:23:30 完成烧录与校验；烧录后 55 秒急停静止压力记录中，双轮命令始终为零、反馈峰值 0.2 RPM、驱动器故障码和速度写失败均为零。
 - 现场随后完成正常遥控回归，用户确认实际操作无异常，可以进入下一阶段；最终生产标签为 `smooth-control-production-v1`。

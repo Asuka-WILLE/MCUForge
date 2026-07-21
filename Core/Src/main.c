@@ -31,6 +31,7 @@
 #include "lcd.h"
 #include "SBUS.h"
 #include "usbd_cdc_if.h"
+#include "imu.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -2001,6 +2002,7 @@ int main(void)
   MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_SPI1_Init();
+  MX_SPI2_Init();
   MX_ADC1_Init();
   MX_UART5_Init();
   MX_USART1_UART_Init();
@@ -2016,6 +2018,11 @@ int main(void)
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_val,1);	// 读取ADC按键键值
 	lift_stop();
 	current_lift_state = LIFT_STOP;
+	/*
+	 * Reserved BMI088 bring-up hook for the later USB upper-computer stage.
+	 * Keep disabled until IMU axes/calibration and telemetry fields are agreed.
+	 */
+	/* (void)IMU_Init(); */
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -2026,6 +2033,8 @@ int main(void)
 		telemetry_process_poll_only();
 
 		uint32_t now = HAL_GetTick();
+		/* Reserved 100 Hz BMI088 sampling hook; intentionally disabled for now. */
+		/* (void)IMU_Poll(now); */
 		/*
 		 * Do not let the SBUS driver's 30 ms byte watchdog override the outer
 		 * 60 ms valid-frame policy while control is healthy.

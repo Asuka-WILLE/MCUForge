@@ -69,6 +69,14 @@ void Error_Handler(void);
 #define LCD_DC_GPIO_Port GPIOD
 #define RS485_DE_Pin GPIO_PIN_4
 #define RS485_DE_GPIO_Port GPIOD
+#define IMU_ACCEL_CS_Pin GPIO_PIN_0
+#define IMU_ACCEL_CS_GPIO_Port GPIOC
+#define IMU_GYRO_CS_Pin GPIO_PIN_3
+#define IMU_GYRO_CS_GPIO_Port GPIOC
+#define IMU_ACCEL_INT_Pin GPIO_PIN_10
+#define IMU_ACCEL_INT_GPIO_Port GPIOE
+#define IMU_GYRO_INT_Pin GPIO_PIN_12
+#define IMU_GYRO_INT_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
 #define RPM_CHANGE_THRESHOLD 5   // 转速变化阈值（小于此值不发送指令）

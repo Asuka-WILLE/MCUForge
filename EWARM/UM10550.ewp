@@ -1089,6 +1089,12 @@
         <file>
           <name>$PROJ_DIR$/../Core/Src/stm32h7xx_hal_msp.c</name>
         </file>
+        <file>
+          <name>$PROJ_DIR$/../Core/Src/imu.c</name>
+        </file>
+        <file>
+          <name>$PROJ_DIR$/../Core/Inc/imu.h</name>
+        </file>
       </group>
     </group>
   </group>
@@ -1165,4 +1171,3 @@
     </group>
   </group>
 </project>
-

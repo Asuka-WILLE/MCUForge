@@ -1298,6 +1298,16 @@
               <FileType>5</FileType>
               <FilePath>..\Core\Inc\SBUS.h</FilePath>
             </File>
+            <File>
+              <FileName>imu.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\imu.c</FilePath>
+            </File>
+            <File>
+              <FileName>imu.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Core\Inc\imu.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
