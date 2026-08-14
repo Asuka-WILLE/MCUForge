@@ -1308,6 +1308,16 @@
               <FileType>5</FileType>
               <FilePath>..\Core\Inc\imu.h</FilePath>
             </File>
+            <File>
+              <FileName>mcuforge_demo.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\mcuforge_demo.c</FilePath>
+            </File>
+            <File>
+              <FileName>mcuforge_demo.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Core\Inc\mcuforge_demo.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

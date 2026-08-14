@@ -1,0 +1,28 @@
+{
+  "id": "CTRL-001",
+  "title": "PC 虚拟手柄混控输出",
+  "phases": [
+    {
+      "name": "neutral",
+      "duration_ms": 200,
+      "send": {"throttle": 0, "steering": 0, "enabled": true}
+    },
+    {
+      "name": "drive",
+      "duration_ms": 300,
+      "send": {"throttle": 400, "steering": 100, "enabled": true}
+    }
+  ],
+  "assertions": [
+    {
+      "name": "混控结果为 left=500 right=300",
+      "phase": "drive",
+      "start_after_ms": 100,
+      "checks": [
+        {"field": "left_cmd", "op": "eq", "value": 500},
+        {"field": "right_cmd", "op": "eq", "value": 300},
+        {"field": "cmd_valid", "op": "eq", "value": 1}
+      ]
+    }
+  ]
+}

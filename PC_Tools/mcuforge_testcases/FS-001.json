@@ -1,0 +1,29 @@
+{
+  "id": "FS-001",
+  "title": "控制帧中断 150 ms 后进入失联保护",
+  "phases": [
+    {
+      "name": "drive",
+      "duration_ms": 300,
+      "send": {"throttle": 600, "steering": 0, "enabled": true}
+    },
+    {
+      "name": "link_loss",
+      "duration_ms": 350
+    }
+  ],
+  "assertions": [
+    {
+      "name": "150 ms 后虚拟输出清零并锁定 FAILSAFE",
+      "phase": "link_loss",
+      "start_after_ms": 170,
+      "sample_scope": "all",
+      "checks": [
+        {"field": "left_cmd", "op": "eq", "value": 0},
+        {"field": "right_cmd", "op": "eq", "value": 0},
+        {"field": "cmd_valid", "op": "eq", "value": 0},
+        {"field": "state", "op": "eq", "value": "FAILSAFE"}
+      ]
+    }
+  ]
+}

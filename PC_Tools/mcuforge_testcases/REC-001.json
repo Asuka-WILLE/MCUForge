@@ -1,0 +1,67 @@
+{
+  "id": "REC-001",
+  "title": "FAILSAFE 后连续三帧中位才能恢复",
+  "phases": [
+    {
+      "name": "drive_before_loss",
+      "duration_ms": 250,
+      "send": {"throttle": 400, "steering": 0, "enabled": true}
+    },
+    {"name": "link_loss", "duration_ms": 250},
+    {
+      "name": "neutral_1",
+      "duration_ms": 80,
+      "max_frames": 1,
+      "send": {"throttle": 0, "steering": 0, "enabled": true}
+    },
+    {
+      "name": "neutral_2",
+      "duration_ms": 80,
+      "max_frames": 1,
+      "send": {"throttle": 0, "steering": 0, "enabled": true}
+    },
+    {
+      "name": "neutral_3",
+      "duration_ms": 80,
+      "max_frames": 1,
+      "send": {"throttle": 0, "steering": 0, "enabled": true}
+    },
+    {
+      "name": "drive_after_recovery",
+      "duration_ms": 250,
+      "send": {"throttle": 300, "steering": 0, "enabled": true}
+    }
+  ],
+  "assertions": [
+    {
+      "name": "第二帧后仍处于 FAILSAFE",
+      "phase": "neutral_2",
+      "start_after_ms": 30,
+      "checks": [
+        {"field": "left_cmd", "op": "eq", "value": 0},
+        {"field": "right_cmd", "op": "eq", "value": 0},
+        {"field": "state", "op": "eq", "value": "FAILSAFE"}
+      ]
+    },
+    {
+      "name": "第三帧后允许恢复",
+      "phase": "neutral_3",
+      "start_after_ms": 30,
+      "checks": [
+        {"field": "left_cmd", "op": "eq", "value": 0},
+        {"field": "right_cmd", "op": "eq", "value": 0},
+        {"field": "state", "op": "in", "value": ["RUN", "DISABLED"]}
+      ]
+    },
+    {
+      "name": "恢复后运动帧重新生效",
+      "phase": "drive_after_recovery",
+      "start_after_ms": 100,
+      "checks": [
+        {"field": "left_cmd", "op": "eq", "value": 300},
+        {"field": "right_cmd", "op": "eq", "value": 300},
+        {"field": "state", "op": "eq", "value": "RUN"}
+      ]
+    }
+  ]
+}

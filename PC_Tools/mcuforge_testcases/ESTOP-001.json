@@ -1,0 +1,30 @@
+{
+  "id": "ESTOP-001",
+  "title": "电脑急停请求立即清零并锁定 ESTOP",
+  "phases": [
+    {
+      "name": "drive",
+      "duration_ms": 250,
+      "send": {"throttle": 500, "steering": 0, "enabled": true}
+    },
+    {
+      "name": "estop",
+      "duration_ms": 250,
+      "send": {"throttle": 500, "steering": 0, "enabled": true, "emergency_stop": true}
+    }
+  ],
+  "assertions": [
+    {
+      "name": "急停期间输出为零",
+      "phase": "estop",
+      "start_after_ms": 80,
+      "sample_scope": "all",
+      "checks": [
+        {"field": "left_cmd", "op": "eq", "value": 0},
+        {"field": "right_cmd", "op": "eq", "value": 0},
+        {"field": "cmd_valid", "op": "eq", "value": 0},
+        {"field": "state", "op": "eq", "value": "ESTOP"}
+      ]
+    }
+  ]
+}

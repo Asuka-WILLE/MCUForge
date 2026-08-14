@@ -33,6 +33,8 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
 
+from mcuforge_protocol import pack_control_frame
+
 try:
     import serial
     from serial.tools import list_ports
@@ -136,6 +138,22 @@ CSV_FIELDS = [
     "left_cmd",
     "right_cmd",
     "cmd_valid",
+    "demo_mode",
+    "input_source",
+    "pc_frame_seen",
+    "pc_sequence",
+    "pc_throttle",
+    "pc_steering",
+    "pc_enabled",
+    "pc_estop_requested",
+    "pc_valid_frame_count",
+    "pc_invalid_frame_count",
+    "pc_crc_error_count",
+    "pc_range_error_count",
+    "pc_sequence_error_count",
+    "pc_rx_overflow_count",
+    "pc_frame_age_ms",
+    "pc_recovery_neutral_count",
     "target_linear",
     "target_steer",
     "conditioned_linear",
@@ -232,13 +250,14 @@ STATE_TEXT = {
     "ESTOP": "失能",
     "FAILSAFE": "遥控失联",
     "ALIGN": "万向轮对正",
+    "DEMO_BASELINE": "Demo 基线（无失联保护）",
 }
 
 
 class TelemetryMonitor(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("轮式机器人运行状态监控")
+        self.title("MCUForge 开发板监控与虚拟手柄")
         self._set_window_icon()
         self.configure(bg=APP_BG)
         self._configure_dpi_scaling()
@@ -255,6 +274,16 @@ class TelemetryMonitor(tk.Tk):
         self.is_recording = False
         self.log_thread = None
         self.current_session_dir = None
+        self.control_sequence = 0
+        self.control_streaming = tk.BooleanVar(value=False)
+        self.control_enabled = tk.BooleanVar(value=False)
+        self.control_estop = tk.BooleanVar(value=False)
+        self.control_throttle = tk.IntVar(value=0)
+        self.control_steering = tk.IntVar(value=0)
+        self.control_status = tk.StringVar(value="控制帧：已停止")
+        self.control_throttle_text = tk.StringVar(value="油门 0")
+        self.control_steering_text = tk.StringVar(value="转向 0")
+        self.demo_mode_active = False
 
         self.x_data = deque(maxlen=MAX_POINTS)
         self.left_data = deque(maxlen=MAX_POINTS)
@@ -272,6 +301,7 @@ class TelemetryMonitor(tk.Tk):
         self._build_ui()
         self.refresh_ports()
         self.after(100, self._poll_data_queue)
+        self.after(20, self._send_control_tick)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def _set_window_icon(self):
@@ -301,7 +331,7 @@ class TelemetryMonitor(tk.Tk):
         self.minsize(1080, 640)
 
     def _build_ui(self):
-        # 界面结构：上方为串口控制，左侧为关键数值卡片，右侧为实时曲线图。
+        # 界面结构：上方为串口连接和虚拟手柄，左侧为关键数值卡片，右侧为实时曲线图。
         style = ttk.Style()
         style.theme_use("clam")
         style.configure(
@@ -322,7 +352,7 @@ class TelemetryMonitor(tk.Tk):
 
         title = tk.Label(
             top,
-            text="轮式机器人运行状态监控",
+            text="MCUForge 开发板监控与虚拟手柄",
             bg=APP_BG,
             fg=TEXT_PRIMARY,
             font=APP_TITLE_FONT,
@@ -380,6 +410,129 @@ class TelemetryMonitor(tk.Tk):
         )
         self.record_button.pack(side=tk.LEFT, padx=(8, 0))
 
+        control_panel = tk.Frame(
+            self,
+            bg=PANEL_BG,
+            highlightthickness=1,
+            highlightbackground=CARD_BORDER,
+        )
+        control_panel.pack(fill=tk.X, padx=18, pady=(0, 10))
+
+        throttle_group = tk.Frame(control_panel, bg=PANEL_BG)
+        throttle_group.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(14, 8), pady=10)
+        tk.Label(
+            throttle_group,
+            textvariable=self.control_throttle_text,
+            bg=PANEL_BG,
+            fg=TEXT_PRIMARY,
+            font=BUTTON_FONT,
+        ).pack(anchor="w")
+        tk.Scale(
+            throttle_group,
+            from_=-1000,
+            to=1000,
+            orient=tk.HORIZONTAL,
+            variable=self.control_throttle,
+            command=self._on_virtual_control_changed,
+            showvalue=False,
+            resolution=10,
+            bg=PANEL_BG,
+            fg=TEXT_PRIMARY,
+            troughcolor=CARD_BG,
+            activebackground=LINE_COLORS["left"],
+            highlightthickness=0,
+        ).pack(fill=tk.X)
+
+        steering_group = tk.Frame(control_panel, bg=PANEL_BG)
+        steering_group.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8, pady=10)
+        tk.Label(
+            steering_group,
+            textvariable=self.control_steering_text,
+            bg=PANEL_BG,
+            fg=TEXT_PRIMARY,
+            font=BUTTON_FONT,
+        ).pack(anchor="w")
+        tk.Scale(
+            steering_group,
+            from_=-1000,
+            to=1000,
+            orient=tk.HORIZONTAL,
+            variable=self.control_steering,
+            command=self._on_virtual_control_changed,
+            showvalue=False,
+            resolution=10,
+            bg=PANEL_BG,
+            fg=TEXT_PRIMARY,
+            troughcolor=CARD_BG,
+            activebackground=LINE_COLORS["right"],
+            highlightthickness=0,
+        ).pack(fill=tk.X)
+
+        command_buttons = tk.Frame(control_panel, bg=PANEL_BG)
+        command_buttons.pack(side=tk.RIGHT, padx=(8, 14), pady=10)
+        tk.Checkbutton(
+            command_buttons,
+            text="使能",
+            variable=self.control_enabled,
+            bg=PANEL_BG,
+            fg=TEXT_PRIMARY,
+            activebackground=PANEL_BG,
+            activeforeground=TEXT_PRIMARY,
+            selectcolor=CARD_BG,
+            font=BUTTON_FONT,
+        ).grid(row=0, column=0, padx=4)
+        tk.Button(
+            command_buttons,
+            text="开始发送",
+            command=self.start_virtual_control,
+            bg="#0f766e",
+            fg=TEXT_PRIMARY,
+            font=BUTTON_FONT,
+            relief=tk.FLAT,
+            padx=12,
+            pady=6,
+        ).grid(row=0, column=1, padx=4)
+        tk.Button(
+            command_buttons,
+            text="停止发送/断链",
+            command=self.stop_virtual_control,
+            bg="#b45309",
+            fg=TEXT_PRIMARY,
+            font=BUTTON_FONT,
+            relief=tk.FLAT,
+            padx=12,
+            pady=6,
+        ).grid(row=0, column=2, padx=4)
+        tk.Button(
+            command_buttons,
+            text="急停请求",
+            command=self.request_virtual_estop,
+            bg="#b91c1c",
+            fg=TEXT_PRIMARY,
+            font=BUTTON_FONT,
+            relief=tk.FLAT,
+            padx=12,
+            pady=6,
+        ).grid(row=0, column=3, padx=4)
+        tk.Button(
+            command_buttons,
+            text="归中复位",
+            command=self.reset_virtual_control,
+            bg="#334155",
+            fg=TEXT_PRIMARY,
+            font=BUTTON_FONT,
+            relief=tk.FLAT,
+            padx=12,
+            pady=6,
+        ).grid(row=0, column=4, padx=4)
+        tk.Label(
+            command_buttons,
+            textvariable=self.control_status,
+            bg=PANEL_BG,
+            fg=TEXT_MUTED,
+            font=CARD_LABEL_FONT,
+        ).grid(row=1, column=0, columnspan=5, sticky="e", pady=(6, 0))
+
         body = tk.Frame(self, bg=APP_BG)
         body.pack(fill=tk.BOTH, expand=True, padx=18, pady=(0, 18))
         body.columnconfigure(0, weight=0)
@@ -391,8 +544,8 @@ class TelemetryMonitor(tk.Tk):
         cards.grid(row=0, column=0, sticky="nsw", padx=(0, 14))
         cards.grid_propagate(False)
 
-        self._add_card(cards, "左轮转速", self.value_vars["left"], LINE_COLORS["left"])
-        self._add_card(cards, "右轮转速", self.value_vars["right"], LINE_COLORS["right"])
+        self._add_card(cards, "左侧反馈 / 虚拟输出", self.value_vars["left"], LINE_COLORS["left"])
+        self._add_card(cards, "右侧反馈 / 虚拟输出", self.value_vars["right"], LINE_COLORS["right"])
         self._add_card(cards, "当前移动速度", self.value_vars["speed"], LINE_COLORS["speed"])
         self._add_card(cards, "运行状态", self.value_vars["state"], LINE_COLORS["state"], value_font=CARD_STATE_FONT)
         self._add_card(cards, "升降机构高度", self.value_vars["height"], LINE_COLORS["height"])
@@ -545,6 +698,52 @@ class TelemetryMonitor(tk.Tk):
         else:
             self.connect()
 
+    def _on_virtual_control_changed(self, _value=None):
+        self.control_throttle_text.set(f"油门 {self.control_throttle.get()}")
+        self.control_steering_text.set(f"转向 {self.control_steering.get()}")
+
+    def start_virtual_control(self):
+        if not self.serial_port:
+            messagebox.showwarning("尚未连接", "请先连接 STM32 USB CDC 串口。")
+            return
+        self.control_streaming.set(True)
+        self.control_status.set("控制帧：20 ms 周期发送")
+
+    def stop_virtual_control(self):
+        self.control_streaming.set(False)
+        self.control_status.set("控制帧：已停止（模拟断链）")
+
+    def request_virtual_estop(self):
+        if not self.serial_port:
+            messagebox.showwarning("尚未连接", "请先连接 STM32 USB CDC 串口。")
+            return
+        self.control_estop.set(True)
+        self.control_streaming.set(True)
+        self.control_status.set("控制帧：持续发送急停请求")
+
+    def reset_virtual_control(self):
+        self.control_throttle.set(0)
+        self.control_steering.set(0)
+        self.control_estop.set(False)
+        self._on_virtual_control_changed()
+        self.control_status.set("控制帧：归中；按开始发送后生效")
+
+    def _send_control_tick(self):
+        if self.serial_port and self.control_streaming.get():
+            frame = pack_control_frame(
+                self.control_sequence,
+                self.control_throttle.get(),
+                self.control_steering.get(),
+                enabled=self.control_enabled.get(),
+                emergency_stop=self.control_estop.get(),
+            )
+            try:
+                self.serial_port.write(frame)
+                self.control_sequence = (self.control_sequence + 1) & 0xFFFF
+            except serial.SerialException as exc:
+                self.data_queue.put(("error", str(exc)))
+        self.after(20, self._send_control_tick)
+
     def toggle_recording(self):
         if self.is_recording:
             self.stop_recording()
@@ -653,6 +852,7 @@ class TelemetryMonitor(tk.Tk):
         self.value_vars["state"].set("等待数据")
 
     def disconnect(self):
+        self.stop_virtual_control()
         self.reader_running = False
         if self.reader_thread and self.reader_thread.is_alive():
             self.reader_thread.join(timeout=0.5)
@@ -764,6 +964,22 @@ class TelemetryMonitor(tk.Tk):
             "left_cmd": cls._optional_int(data, "left_cmd"),
             "right_cmd": cls._optional_int(data, "right_cmd"),
             "cmd_valid": cls._optional_int(data, "cmd_valid"),
+            "demo_mode": cls._optional_int(data, "demo_mode"),
+            "input_source": str(data["input_source"]) if data.get("input_source") not in (None, "") else None,
+            "pc_frame_seen": cls._optional_int(data, "pc_frame_seen"),
+            "pc_sequence": cls._optional_int(data, "pc_sequence"),
+            "pc_throttle": cls._optional_int(data, "pc_throttle"),
+            "pc_steering": cls._optional_int(data, "pc_steering"),
+            "pc_enabled": cls._optional_int(data, "pc_enabled"),
+            "pc_estop_requested": cls._optional_int(data, "pc_estop_requested"),
+            "pc_valid_frame_count": cls._optional_int(data, "pc_valid_frame_count"),
+            "pc_invalid_frame_count": cls._optional_int(data, "pc_invalid_frame_count"),
+            "pc_crc_error_count": cls._optional_int(data, "pc_crc_error_count"),
+            "pc_range_error_count": cls._optional_int(data, "pc_range_error_count"),
+            "pc_sequence_error_count": cls._optional_int(data, "pc_sequence_error_count"),
+            "pc_rx_overflow_count": cls._optional_int(data, "pc_rx_overflow_count"),
+            "pc_frame_age_ms": cls._optional_int(data, "pc_frame_age_ms"),
+            "pc_recovery_neutral_count": cls._optional_int(data, "pc_recovery_neutral_count"),
             "target_linear": cls._optional_int(data, "target_linear"),
             "target_steer": cls._optional_int(data, "target_steer"),
             "conditioned_linear": cls._optional_int(data, "conditioned_linear"),
@@ -835,14 +1051,20 @@ class TelemetryMonitor(tk.Tk):
     def _update_from_data(self, data):
         now = time.monotonic() - self.start_time
         normalized = self._normalize_data(data, now)
-        left = normalized["left_rpm_abs"]
-        right = normalized["right_rpm_abs"]
+        self.demo_mode_active = bool(self._optional_int(data, "demo_mode"))
+        if self.demo_mode_active:
+            left = normalized["left_cmd"]
+            right = normalized["right_cmd"]
+        else:
+            left = normalized["left_rpm_abs"]
+            right = normalized["right_rpm_abs"]
         speed = normalized["speed_mps"]
         height = normalized["height_mm"]
         state = normalized["state"]
 
-        self.value_vars["left"].set("-- rpm" if left is None else f"{left} rpm")
-        self.value_vars["right"].set("-- rpm" if right is None else f"{right} rpm")
+        unit = "cmd" if self.demo_mode_active else "rpm"
+        self.value_vars["left"].set(f"-- {unit}" if left is None else f"{left} {unit}")
+        self.value_vars["right"].set(f"-- {unit}" if right is None else f"{right} {unit}")
         self.value_vars["speed"].set("-- m/s" if speed is None else f"{speed:.3f} m/s")
         self.value_vars["state"].set("未知" if state is None else STATE_TEXT.get(state, state))
         self.value_vars["height"].set("-- mm" if height is None else f"{height} mm")
@@ -862,8 +1084,21 @@ class TelemetryMonitor(tk.Tk):
         if self.x_data:
             self.axis.set_xlim(max(0, self.x_data[0]), max(10, self.x_data[-1]))
 
-        self.axis.set_ylim(0, MAX_RPM_DISPLAY)
-        self.speed_axis.set_ylim(0, MAX_SPEED_MPS_DISPLAY)
+        if self.demo_mode_active:
+            self.axis.set_title("虚拟左右输出曲线", fontproperties=self.chart_font, color=TEXT_PRIMARY,
+                                fontsize=CHART_TITLE_SIZE, fontweight="bold", pad=10)
+            self.axis.set_ylabel("虚拟指令", fontproperties=self.chart_font, color=TEXT_SECONDARY,
+                                 fontsize=CHART_LABEL_SIZE, fontweight="bold", labelpad=12)
+            self.axis.set_ylim(-1000, 1000)
+            self.speed_axis.set_visible(False)
+        else:
+            self.axis.set_title("实时速度曲线", fontproperties=self.chart_font, color=TEXT_PRIMARY,
+                                fontsize=CHART_TITLE_SIZE, fontweight="bold", pad=10)
+            self.axis.set_ylabel("转速 / rpm", fontproperties=self.chart_font, color=TEXT_SECONDARY,
+                                 fontsize=CHART_LABEL_SIZE, fontweight="bold", labelpad=12)
+            self.axis.set_ylim(0, MAX_RPM_DISPLAY)
+            self.speed_axis.set_visible(True)
+            self.speed_axis.set_ylim(0, MAX_SPEED_MPS_DISPLAY)
         self._style_chart_ticks()
 
         self.canvas.draw_idle()

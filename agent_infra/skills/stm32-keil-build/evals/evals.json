@@ -1,0 +1,17 @@
+{
+  "skill_name": "stm32-keil-build",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我刚改了 Core/Src/mcuforge_demo.c，确认它能否作为待烧录固件。",
+      "expected_output": "运行真实全量 Keil 构建，返回错误警告、程序大小和 HEX 哈希，不烧录。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "代码看起来没报错，直接告诉我构建通过了吗？",
+      "expected_output": "拒绝仅凭静态阅读下结论，调用构建脚本并区分构建证据和硬件证据。",
+      "files": []
+    }
+  ]
+}

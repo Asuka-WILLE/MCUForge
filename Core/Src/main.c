@@ -32,6 +32,7 @@
 #include "SBUS.h"
 #include "usbd_cdc_if.h"
 #include "imu.h"
+#include "mcuforge_demo.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -2009,15 +2010,21 @@ int main(void)
   MX_USART3_UART_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
-	SBUS_Init();
 	// 开启LCD背光
 	HAL_Delay(10);
 	LCD_Init();
+	#if MCUFORGE_DEMO_MODE
+	MCUForge_Demo_Init();
+	#else
+	SBUS_Init();
 	rc_lcd_init_screen();
+	#endif
 	HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_val,1);	// 读取ADC按键键值
+	#if !MCUFORGE_DEMO_MODE
 	lift_stop();
 	current_lift_state = LIFT_STOP;
+	#endif
 	/*
 	 * Reserved BMI088 bring-up hook for the later USB upper-computer stage.
 	 * Keep disabled until IMU axes/calibration and telemetry fields are agreed.
@@ -2029,7 +2036,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {	
-		
+		#if MCUFORGE_DEMO_MODE
+		MCUForge_Demo_Process(HAL_GetTick());
+		#else
 		telemetry_process_poll_only();
 
 		uint32_t now = HAL_GetTick();
@@ -2196,7 +2205,8 @@ int main(void)
 		telemetry_failsafe = (!rc_ready || sbus_failsafe);
 		rc_lcd_process(HAL_GetTick());
 		telemetry_process();
-														
+		#endif
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

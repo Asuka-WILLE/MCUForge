@@ -1,5 +1,31 @@
 # UM10550 轮毂电机与升降机构遥控控制程序
 
+> **MCUForge 比赛分支说明（2026-08-14）**：`feature/mcuforge-demo-infra` 面向“开发板 + TFT + 电脑”演示，不需要车、遥控器或电机。`MCUFORGE_DEMO_MODE=1` 时主循环只运行隔离的 USB 虚拟控制模块，不进入下文保留的 SBUS、RS485 和实际电机流程。
+
+## MCUForge 开发板 Demo
+
+本分支新增的真实链路为：
+
+```text
+电脑监控与虚拟手柄
+  -> USB CDC 14 字节控制帧（20 ms）
+  -> STM32 协议校验与虚拟左右混控
+  -> TFT 显示 PC 输入和虚拟输出
+  -> USB CDC JSON 遥测回传电脑并保存测试证据
+```
+
+关键入口：
+
+- 固件：`Core/Src/mcuforge_demo.c`、`Core/Inc/mcuforge_demo.h`
+- GUI：`python PC_Tools\telemetry_monitor.py`
+- 固定测试：`python PC_Tools\mcuforge_test_runner.py --list`
+- 多 Agent 基础设施：`agent_infra/README.md`
+- 串口协议：`docs/serial-control-protocol.md`
+
+当前开发板仍运行旧固件；新 Demo 源码已经通过 Keil 全量构建，但尚未获得烧录许可。基础版本故意不实现 150 ms 失联清零、三帧中位恢复和急停锁定，用固定测试留下一个可由 AgentTeams 编码、复测和审计的真实任务。
+
+下文继续保留原生产车控工程说明，便于理解被 Demo 模式隔离的既有能力。
+
 本工程是基于 STM32H723VETx 的 CubeMX/MDK 工程，用 HT-10A 十通道遥控器的 SBUS 接收信号控制两侧和利时 UM 系列伺服轮毂一体机，以及一路 RS485 升降机构。
 
 当前代码的核心控制链路是：

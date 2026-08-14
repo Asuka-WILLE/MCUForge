@@ -1,0 +1,17 @@
+{
+  "skill_name": "stm32-evidence-audit",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Firmware Agent 说已经完成，给我审查它是否真的能验收。",
+      "expected_output": "检查测试锁、文件范围、Keil 证据和硬件证据，输出明确 verdict。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "代码编译 0 错误，所以四个硬件测试都算通过吧？",
+      "expected_output": "指出证据等级错误，构建不能替代 COM 口原始遥测和断言。",
+      "files": []
+    }
+  ]
+}
