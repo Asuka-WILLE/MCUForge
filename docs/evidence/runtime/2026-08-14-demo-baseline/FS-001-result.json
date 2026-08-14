@@ -1,0 +1,36 @@
+{
+  "case_id": "FS-001",
+  "title": "控制帧中断 150 ms 后进入失联保护",
+  "started_at": "2026-08-14T21:14:10",
+  "port": "COM3",
+  "baudrate": 115200,
+  "passed": false,
+  "sent_frames": 15,
+  "telemetry_samples": 12,
+  "assertions": [
+    {
+      "name": "150 ms 后虚拟输出清零并锁定 FAILSAFE",
+      "passed": false,
+      "sample_count": 4,
+      "failures": [
+        "left_cmd=600，期望 eq 0",
+        "right_cmd=600，期望 eq 0",
+        "cmd_valid=1，期望 eq 0",
+        "state='DEMO_BASELINE'，期望 eq 'FAILSAFE'",
+        "left_cmd=600，期望 eq 0",
+        "right_cmd=600，期望 eq 0",
+        "cmd_valid=1，期望 eq 0",
+        "state='DEMO_BASELINE'，期望 eq 'FAILSAFE'",
+        "left_cmd=600，期望 eq 0",
+        "right_cmd=600，期望 eq 0",
+        "cmd_valid=1，期望 eq 0",
+        "state='DEMO_BASELINE'，期望 eq 'FAILSAFE'",
+        "left_cmd=600，期望 eq 0",
+        "right_cmd=600，期望 eq 0",
+        "cmd_valid=1，期望 eq 0",
+        "state='DEMO_BASELINE'，期望 eq 'FAILSAFE'"
+      ]
+    }
+  ],
+  "raw_telemetry": "telemetry.jsonl"
+}

@@ -34,8 +34,8 @@
 | 左右轮驱动 RS485 | `Core/Src/usart.c` | USART2，PD5/PD6，115200 bps、8N1；`RS485_SendPacket*()` 控制 PD4 DE。现有路径会对真实轮毂电机发命令。 |
 | 第二路 RS485 | `Core/Src/usart.c` | USART3，PD8/PD9，9600 bps、8N1；`RS485_SendPacket2*()` 控制 PB14 DE。 |
 | 调试串口 | `Core/Src/usart.c` | USART1，PA9/PA10，115200 bps、8N1。 |
-| USB CDC | `USB_DEVICE/`、`Core/Src/mcuforge_demo.c` | Demo 源码接收 14 字节 PC 控制帧，并以约 50 ms 周期发送虚拟状态 JSON；旧硬件固件尚未烧录。 |
-| TFT | `Core/Src/lcd.c`、`Core/Src/mcuforge_demo.c` | Demo 源码显示 PC 输入、虚拟左右输出和“无 failsafe 基线”；旧硬件照片仍是 SBUS 调试页。 |
+| USB CDC | `USB_DEVICE/`、`Core/Src/mcuforge_demo.c` | Demo 固件已烧录；COM3 实测接收 14 字节 PC 控制帧，并以约 50 ms 周期发送虚拟状态 JSON。 |
+| TFT | `Core/Src/lcd.c`、`Core/Src/mcuforge_demo.c` | 当前固件显示 PC 输入、虚拟左右输出和“无 failsafe 基线”；仍需补拍烧录后照片。 |
 | IMU | `Core/Src/imu.c`、`Core/Inc/imu.h` | BMI088 使用 SPI2；本次迁移不启用或修改 IMU 逻辑。 |
 
 ## 4. 当前控制与安全逻辑
@@ -58,4 +58,4 @@
 2. 与生产车控隔离的虚拟左右输出、独立 TFT 页面和 JSON 遥测；
 3. 电脑虚拟手柄和固定 CLI 黑盒测试。
 
-当前故意保留的任务缺口是 150 ms 超时、三帧中位恢复、急停锁定及相应状态显示。新固件尚未烧录；在获得用户许可并记录 `FS-001` 真实失败前，不创建 `baseline-no-failsafe` 标签。
+当前故意保留的任务缺口是 150 ms 超时、三帧中位恢复、急停锁定及相应状态显示。Demo 固件已经烧录，`CTRL-001` 通过且 `FS-001` 真实失败证据已归档，可以冻结 `baseline-no-failsafe` 基线并启动 AgentTeams 实现任务。

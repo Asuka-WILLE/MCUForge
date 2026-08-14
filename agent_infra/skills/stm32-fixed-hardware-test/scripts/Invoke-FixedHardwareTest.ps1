@@ -10,8 +10,8 @@ $integrityScript = Join-Path $repoRoot "agent_infra\skills\stm32-evidence-audit\
 $runner = Join-Path $repoRoot "PC_Tools\mcuforge_test_runner.py"
 
 & $integrityScript
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
+if (-not $?) {
+    exit 1
 }
 
 if ($List) {

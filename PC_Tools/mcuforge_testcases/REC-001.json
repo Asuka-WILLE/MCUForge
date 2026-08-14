@@ -10,22 +10,25 @@
     {"name": "link_loss", "duration_ms": 250},
     {
       "name": "neutral_1",
-      "duration_ms": 80,
+      "duration_ms": 40,
       "max_frames": 1,
       "send": {"throttle": 0, "steering": 0, "enabled": true}
     },
+    {"name": "observe_neutral_1", "duration_ms": 90},
     {
       "name": "neutral_2",
-      "duration_ms": 80,
+      "duration_ms": 40,
       "max_frames": 1,
       "send": {"throttle": 0, "steering": 0, "enabled": true}
     },
+    {"name": "observe_neutral_2", "duration_ms": 90},
     {
       "name": "neutral_3",
-      "duration_ms": 80,
+      "duration_ms": 40,
       "max_frames": 1,
       "send": {"throttle": 0, "steering": 0, "enabled": true}
     },
+    {"name": "observe_neutral_3", "duration_ms": 90},
     {
       "name": "drive_after_recovery",
       "duration_ms": 250,
@@ -35,18 +38,19 @@
   "assertions": [
     {
       "name": "第二帧后仍处于 FAILSAFE",
-      "phase": "neutral_2",
-      "start_after_ms": 30,
+      "phase": "observe_neutral_2",
+      "start_after_ms": 20,
       "checks": [
         {"field": "left_cmd", "op": "eq", "value": 0},
         {"field": "right_cmd", "op": "eq", "value": 0},
-        {"field": "state", "op": "eq", "value": "FAILSAFE"}
+        {"field": "state", "op": "eq", "value": "FAILSAFE"},
+        {"field": "pc_recovery_neutral_count", "op": "eq", "value": 2}
       ]
     },
     {
       "name": "第三帧后允许恢复",
-      "phase": "neutral_3",
-      "start_after_ms": 30,
+      "phase": "observe_neutral_3",
+      "start_after_ms": 20,
       "checks": [
         {"field": "left_cmd", "op": "eq", "value": 0},
         {"field": "right_cmd", "op": "eq", "value": 0},

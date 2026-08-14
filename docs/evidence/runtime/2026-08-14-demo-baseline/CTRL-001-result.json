@@ -1,0 +1,19 @@
+{
+  "case_id": "CTRL-001",
+  "title": "PC 虚拟手柄混控输出",
+  "started_at": "2026-08-14T21:14:02",
+  "port": "COM3",
+  "baudrate": 115200,
+  "passed": true,
+  "sent_frames": 25,
+  "telemetry_samples": 7,
+  "assertions": [
+    {
+      "name": "混控结果为 left=500 right=300",
+      "passed": true,
+      "sample_count": 1,
+      "failures": []
+    }
+  ],
+  "raw_telemetry": "telemetry.jsonl"
+}

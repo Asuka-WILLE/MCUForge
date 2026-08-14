@@ -1,0 +1,38 @@
+{
+  "case_id": "REC-001",
+  "title": "FAILSAFE 后连续三帧中位才能恢复",
+  "started_at": "2026-08-14T21:17:33",
+  "port": "COM3",
+  "baudrate": 115200,
+  "passed": false,
+  "sent_frames": 27,
+  "telemetry_samples": 18,
+  "assertions": [
+    {
+      "name": "第二帧后仍处于 FAILSAFE",
+      "passed": false,
+      "sample_count": 1,
+      "failures": [
+        "state='DEMO_BASELINE'，期望 eq 'FAILSAFE'",
+        "pc_recovery_neutral_count=None，期望 eq 2"
+      ]
+    },
+    {
+      "name": "第三帧后允许恢复",
+      "passed": false,
+      "sample_count": 1,
+      "failures": [
+        "state='DEMO_BASELINE'，期望 in ['RUN', 'DISABLED']"
+      ]
+    },
+    {
+      "name": "恢复后运动帧重新生效",
+      "passed": false,
+      "sample_count": 1,
+      "failures": [
+        "state='DEMO_BASELINE'，期望 eq 'RUN'"
+      ]
+    }
+  ],
+  "raw_telemetry": "telemetry.jsonl"
+}

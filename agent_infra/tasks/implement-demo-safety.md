@@ -10,7 +10,8 @@
 2. `FAILSAFE` 下运动帧不能恢复控制；必须连续收到 3 个有效中位帧后才退出。
 3. 急停 flag 一旦出现，立即进入锁定 `ESTOP` 并清零；恢复规则由 Requirement Agent 根据用户确认冻结，不能自行猜测。
 4. TFT、USB JSON 和 PC GUI 对 `RUN`、`FAILSAFE`、`ESTOP` 的显示必须一致。
-5. 保持 Demo 路径不调用任何 SBUS、RS485、电机和升降函数。
+5. JSON 遥测提供 `pc_recovery_neutral_count`，使验证 Agent 能证明第二帧仍锁定、第三帧才恢复。
+6. 保持 Demo 路径不调用任何 SBUS、RS485、电机和升降函数。
 
 ## 验收
 

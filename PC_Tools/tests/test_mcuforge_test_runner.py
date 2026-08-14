@@ -40,6 +40,25 @@ class MCUForgeTestRunnerTests(unittest.TestCase):
         )
         self.assertTrue(all(item["passed"] for item in results))
 
+    def test_recovery_case_accepts_three_neutral_frame_contract(self):
+        case = load_case("REC-001")
+        results = evaluate(
+            case,
+            [
+                sample(
+                    "observe_neutral_2",
+                    50,
+                    left_cmd=0,
+                    right_cmd=0,
+                    state="FAILSAFE",
+                    pc_recovery_neutral_count=2,
+                ),
+                sample("observe_neutral_3", 50, left_cmd=0, right_cmd=0, state="RUN"),
+                sample("drive_after_recovery", 150, left_cmd=300, right_cmd=300, state="RUN"),
+            ],
+        )
+        self.assertTrue(all(item["passed"] for item in results))
+
 
 if __name__ == "__main__":
     unittest.main()

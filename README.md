@@ -22,7 +22,7 @@
 - 多 Agent 基础设施：`agent_infra/README.md`
 - 串口协议：`docs/serial-control-protocol.md`
 
-当前开发板仍运行旧固件；新 Demo 源码已经通过 Keil 全量构建，但尚未获得烧录许可。基础版本故意不实现 150 ms 失联清零、三帧中位恢复和急停锁定，用固定测试留下一个可由 AgentTeams 编码、复测和审计的真实任务。
+Demo 固件已于 2026-08-14 经用户批准烧录到开发板：COM3 静默遥测正常，`CTRL-001` 通过，`FS-001`、`ESTOP-001`、`REC-001` 均按预期失败。基础版本故意不实现 150 ms 失联清零、三帧中位恢复和急停锁定，由此留下一个可由 AgentTeams 编码、复测和审计的真实任务。详见 [`docs/evidence/demo-hardware-baseline-2026-08-14.md`](docs/evidence/demo-hardware-baseline-2026-08-14.md)。
 
 下文继续保留原生产车控工程说明，便于理解被 Demo 模式隔离的既有能力。
 

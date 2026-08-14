@@ -15,17 +15,18 @@
 - 记录 COM3 旧固件运行遥测与 TFT 照片：[`docs/evidence/hardware-runtime-baseline-2026-08-14.md`](docs/evidence/hardware-runtime-baseline-2026-08-14.md)。
 - 记录 Demo 基础设施 Keil 全量构建和 Python 验证：[`docs/evidence/demo-infrastructure-build-2026-08-14.md`](docs/evidence/demo-infrastructure-build-2026-08-14.md)。
 - 增加 4 个 Agent 的职责/权限合同，以及 Keil 构建、固定硬件测试、证据审计 3 个可复用 Skill 和测试用例哈希锁。
+- 经用户批准烧录 Demo HEX；记录 COM3 静默遥测、`CTRL-001` 通过以及 `FS-001`、`ESTOP-001`、`REC-001` 预期失败的真实硬件证据：[`docs/evidence/demo-hardware-baseline-2026-08-14.md`](docs/evidence/demo-hardware-baseline-2026-08-14.md)。
 
 ### 已验证
 
 - 在本地分支 `feature/mc02-bmi088-interface`、基线提交 `b4adf58` 上执行 Keil `UM10550` target 构建；退出码为 0，Keil 报告为 `0 Error(s), 0 Warning(s)`。
 - 记录了本次生成的 HEX 与 AXF 的 SHA-256，供后续烧录审批和证据归档比对。
 - 在 `feature/mcuforge-demo-infra` 上执行新增 Demo 固件的 Keil 真实构建；报告仍为 `0 Error(s), 0 Warning(s)`。
-- Python 协议、测试器和 GUI 均通过 `py_compile`；协议与测试判定单元测试 7 项全部通过，固定测试清单可正常加载。
+- Python 协议、测试器和 GUI 均通过 `py_compile`；协议与测试判定单元测试 8 项全部通过，固定测试清单可正常加载。
 
 ### 约束与未做事项
 
 - 未访问任何远端仓库，未推送、拉取或烧录固件。
-- 开发板当前仍运行旧固件，所以照片仍显示 `Waiting SBUS frame...`；新 Demo 固件尚未烧录，COM3 黑盒测试也尚未执行。
+- 旧 `Waiting SBUS frame...` 照片仅作为烧录前基线；当前开发板已经运行新 Demo 固件，但还需要补拍烧录后的 TFT 照片。
 - 基础设施版本故意不实现 150 ms 超时、三帧中位恢复和急停锁定；固定测试应先证明这些用例失败，再交给 AgentTeams 实现。
-- 尚未创建 `baseline-no-failsafe` 标签；必须先获得用户烧录许可并记录 `FS-001` 的真实硬件失败证据。
+- 未访问远端、未推送；安全功能仍未实现，不能把 `FS-001` 的预期失败描述为最终功能通过。
