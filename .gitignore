@@ -31,6 +31,9 @@ Drivers/CMSIS/RTOS2/
 DebugConfig/
 /build/
 /dist/
+/agent_infra/tool_bridge/stm32-mcp-server/node_modules/
+/agent_infra/tool_bridge/stm32-mcp-server/dist/
+/agent_infra/tool_bridge/stm32-mcp-server/*.log
 /UM10550/
 PC_Tools/data/
 PC_Tools/build/

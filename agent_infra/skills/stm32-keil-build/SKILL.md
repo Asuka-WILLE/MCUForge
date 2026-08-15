@@ -1,7 +1,7 @@
 ---
 name: stm32-keil-build
 description: Perform and audit a real Keil uVision build for this STM32 project, including exit code, error and warning counts, program size, and SHA-256 hashes. Use whenever an Agent changes firmware, the Keil project, USB code, or claims the STM32 build is ready.
-compatibility: Windows PowerShell, Keil uVision 5, UM10550 target
+compatibility: PowerShell 7, Keil uVision 5, UM10550 target
 ---
 
 # STM32 Keil Build
@@ -14,7 +14,7 @@ Use the bundled `scripts/Invoke-KeilBuild.ps1` instead of inferring build succes
 2. Run a full rebuild after firmware changes:
 
    ```powershell
-   powershell -ExecutionPolicy Bypass -File agent_infra\skills\stm32-keil-build\scripts\Invoke-KeilBuild.ps1 -Rebuild
+   pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\skills\stm32-keil-build\scripts\Invoke-KeilBuild.ps1 -Rebuild
    ```
 
 3. Treat success as all of the following: process exit code 0, Keil log reports 0 errors and 0 warnings, HEX exists, SHA-256 is present.

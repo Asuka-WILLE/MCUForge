@@ -1,7 +1,7 @@
 ---
 name: stm32-evidence-audit
 description: Audit STM32 Agent work for scope violations, immutable-test tampering, missing Keil or hardware evidence, and unsafe claims. Use before accepting any firmware change, AgentTeams handoff, demo milestone, local tag, push, or statement that the task is complete.
-compatibility: Git, Windows PowerShell
+compatibility: Git, PowerShell 7
 ---
 
 # STM32 Evidence Audit

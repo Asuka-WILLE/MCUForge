@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<evaluation>
+  <qa_pair>
+    <question>对照 2026-08-14 的 Demo 基础设施构建证据与随后硬件基线中的烧录身份，两处记录共同指向的 Keil target 是什么？只返回 target 名称。</question>
+    <answer>UM10550</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>比较 USB 虚拟控制协议和安全状态机任务，二者对最后有效控制帧失效阈值的共同规定是多少毫秒？只返回整数。</question>
+    <answer>150</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>结合安全状态机任务与 2026-08-14 硬件基线中的恢复失败说明，退出失联保护前要求连续收到多少个有效中位帧？只返回整数。</question>
+    <answer>3</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>先验证固定测试锁完整，再查看 2026-08-14 硬件基线；四个锁定用例中，基础版本唯一实际通过的是哪个 case ID？</question>
+    <answer>CTRL-001</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>在 2026-08-14 烧录后的 5 秒静默检查中，共取得多少条有效 JSON 遥测？只返回整数。</question>
+    <answer>101</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>检查烧录后静默遥测和三个预期失败用例的状态描述；基础固件始终错误保持的状态字符串是什么？</question>
+    <answer>DEMO_BASELINE</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>在 2026-08-14 Demo 基础设施构建证据中，协议与测试器静态验证合计通过了多少个 Python 单元测试？只返回整数。</question>
+    <answer>7</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>读取 2026-08-14 Demo 全量构建的 Program Size；其中 Code 字节数是多少？只返回整数。</question>
+    <answer>64130</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>对照固定测试锁与硬件基线中“稳定版本”的说明，REC-001 最终冻结的 SHA-256 是什么？只返回 64 位大写十六进制值。</question>
+    <answer>C63037AEB57245047FE60DBD8E0170AF371F35C30A21FD2FDDFB3F3E535A1168</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>比较基础设施构建证据的下一步要求与硬件基线的尚缺视觉证据，待补拍 TFT 照片必须出现的完整标题文字是什么？</question>
+    <answer>MCUFORGE DEMO BASE</answer>
+  </qa_pair>
+</evaluation>
