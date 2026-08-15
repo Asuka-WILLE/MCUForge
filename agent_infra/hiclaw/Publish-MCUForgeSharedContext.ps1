@@ -40,9 +40,9 @@ foreach ($file in $requiredFiles) {
     }
 }
 
-$head = (git -C $repoRoot rev-parse HEAD).Trim()
+$head = (git -C $repoRoot log -1 --format=%H -- $contextSource).Trim()
 if ($LASTEXITCODE -ne 0) {
-    throw "Unable to resolve Git HEAD"
+    throw "Unable to resolve the context bundle Git commit"
 }
 
 $fileHashes = foreach ($file in $requiredFiles | Sort-Object) {
@@ -107,10 +107,23 @@ $leaderRunning = (& docker inspect -f '{{.State.Running}}' $LeaderWorker).Trim()
 if ($LASTEXITCODE -ne 0 -or $leaderRunning -ne "true") {
     throw "Team Leader is not running: $LeaderWorker"
 }
-$leaderSyncScript = 'set -eu; run_id="$1"; remote_dir="${HICLAW_STORAGE_PREFIX}/shared/mcuforge/runs/${run_id}/"; local_dir="/root/hiclaw-fs/shared/mcuforge/runs/${run_id}/"; mkdir -p "${local_dir}"; mc mirror "${remote_dir}" "${local_dir}" --overwrite; test -f "${local_dir}/publish-manifest.json"'
-& docker exec $LeaderWorker sh -lc $leaderSyncScript sh $RunId
+$leaderStoragePrefix = (& docker exec $LeaderWorker printenv HICLAW_STORAGE_PREFIX).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($leaderStoragePrefix)) {
+    throw "Team Leader storage prefix is unavailable"
+}
+$leaderRemote = "$leaderStoragePrefix/shared/mcuforge/runs/$RunId/"
+$leaderLocal = "/root/hiclaw-fs/shared/mcuforge/runs/$RunId/"
+& docker exec $LeaderWorker mkdir -p $leaderLocal
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to create the Team Leader shared-context directory"
+}
+& docker exec $LeaderWorker mc mirror $leaderRemote $leaderLocal --overwrite
 if ($LASTEXITCODE -ne 0) {
     throw "Shared-context sync failed for Team Leader"
+}
+& docker exec $LeaderWorker test -f "${leaderLocal}publish-manifest.json"
+if ($LASTEXITCODE -ne 0) {
+    throw "Shared context is missing after Team Leader sync"
 }
 
 $manifestHash = (Get-FileHash -LiteralPath (Join-Path $stagingRoot "publish-manifest.json") -Algorithm SHA256).Hash
