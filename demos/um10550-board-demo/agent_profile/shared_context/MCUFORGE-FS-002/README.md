@@ -1,6 +1,6 @@
 # MCUForge-FS-001 共享上下文包
 
-这是 `MCUFORGE-FS-001` 的唯一可发布输入包。它让 Requirement、Research、Firmware、Verification 和 Team Leader 使用同一份冻结需求与工程事实，而不是在聊天中各自复述、各自猜测。
+这是 `MCUFORGE-FS-002` 的唯一可发布输入包。它让 Requirement、Research、Firmware、Verification 和 Team Leader 使用同一份冻结需求与工程事实，而不是在聊天中各自复述、各自猜测。
 
 ## 发布前提
 
@@ -14,7 +14,7 @@
 使用 `agent_infra/hiclaw/Publish-MCUForgeSharedContext.ps1` 发布后，所有 Worker 从下面位置读取：
 
 ```text
-/root/hiclaw-fs/shared/mcuforge/runs/MCUFORGE-FS-001/
+/root/hiclaw-fs/shared/mcuforge/runs/MCUFORGE-FS-002/
 ```
 
 发布脚本会在该目录额外生成 `publish-manifest.json`，其中记录发布 Git 提交、文件哈希和内容 ID。该清单是 Verification Agent 判断交接输入是否被替换的依据。

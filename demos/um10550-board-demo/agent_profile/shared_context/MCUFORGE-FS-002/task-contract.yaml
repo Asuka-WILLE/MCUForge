@@ -1,12 +1,12 @@
 contract:
-  run_id: MCUFORGE-FS-001
+  run_id: MCUFORGE-FS-002
   title: MCUForge Demo PC 控制断链、急停与恢复
-  version: 1.0.0
+  version: 1.1.0
   status: frozen_for_research_and_implementation
-  firmware_baseline_commit: 95f7c67867f81c7169f7f44cec3a16431e91e47d
-  orchestration_baseline_commit: 714be77
+  firmware_baseline_commit: efba900861e0fca3ebd6299163faebb38b6d25d0
+  orchestration_baseline_commit: efba900861e0fca3ebd6299163faebb38b6d25d0
   target: UM10550
-  device_boundary: STM32H723 开发板、TFT、USB CDC、电脑虚拟手柄和 PC 遥测
+  device_boundary: STM32H723 开发板、TFT、USB CDC、电脑虚拟手柄和 PC 遥测；固件根目录为 demos/um10550-board-demo/firmware
 
 goal:
   user_intent: 电脑控制帧中断或发出急停时，Demo 虚拟输出必须安全清零；恢复必须防止瞬间重新运动。

@@ -1,5 +1,5 @@
 param(
-    [string]$RunId = "MCUFORGE-FS-001",
+    [string]$RunId = "MCUFORGE-FS-002",
     [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\agent_profile")),
     [string]$CarrierWorker = "hiclaw-worker-mcuforge-firmware",
     [string]$LeaderWorker = "hiclaw-worker-mcuforge-lead",

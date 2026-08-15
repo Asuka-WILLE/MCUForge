@@ -32,7 +32,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\hiclaw\Bootstrap-MCUFo
 pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\hiclaw\Publish-MCUForgeSharedContext.ps1
 ```
 
-默认发布 `MCUFORGE-FS-001`。脚本拒绝从脏工作树发布，记录内容哈希，并拒绝用相同 `run_id` 覆盖不同上下文；要修改合同，必须创建新的 run。四个 OpenClaw Worker 使用 `/root/hiclaw-fs/shared/mcuforge/runs/<run_id>/`，Leader 也同步至同一路径。
+默认发布 `MCUFORGE-FS-002`。脚本拒绝从脏工作树发布，记录内容哈希，并拒绝用相同 `run_id` 覆盖不同上下文；要修改合同，必须创建新的 run。四个 OpenClaw Worker 使用 `/root/hiclaw-fs/shared/mcuforge/runs/<run_id>/`，Leader 也同步至同一路径。
 
 ## 当前接入状态
 

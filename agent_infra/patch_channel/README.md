@@ -4,7 +4,7 @@
 
 ## 固定边界
 
-- 当前冻结任务：`MCUFORGE-FS-001`。
+- 当前 UM10550 示例冻结任务：`MCUFORGE-FS-002`。
 - 只允许修改既有 `Core/Src/mcuforge_demo.c` 与 `Core/Inc/mcuforge_demo.h`。
 - 禁止新增、删除、重命名、复制、二进制补丁，以及任何固定测试、合同或证据审计脚本的变更。
 - `patch-policy.json` 是本通道的机器可读策略；变更源码范围或基线时，必须重新冻结合同与策略，不能直接改旧提案。
