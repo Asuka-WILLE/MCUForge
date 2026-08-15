@@ -24,6 +24,20 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\hiclaw\Bootstrap-MCUFo
 
 脚本是幂等的：已存在的 Team/Worker 会被更新，不会重复创建。它不会烧录、推送或删除任何仓库文件。
 
+## 安装自定义工程 Skills
+
+`agent_infra/skills/general-engineering-principles-2026-08-16/` 中的九个 `.skill` 包已分配给 Team Leader 与四个 Worker。它们覆盖证据驱动调试、接口契约、回归安全、状态机、时序、验证、交付和文档等通用工程原则；不增加任何 MCP、Shell、烧录或 Git 写入权限。
+
+每个包会在安装时校验 ZIP 结构、YAML `name`/`description` 和 SHA-256，再解包为 Worker 工作区的 `skills/<name>/SKILL.md`。内容持久化在 HiClaw MinIO 中，Worker 重启或重新创建后仍可同步恢复。`Bootstrap-MCUForgeTeam.ps1` 默认会执行安装；只想更新 Team 配置时可加 `-SkipBundledSkills`。
+
+需要单独重装或更新这些包时，从仓库根目录执行：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\hiclaw\Install-MCUForgeSkills.ps1
+```
+
+安装脚本不删除已有的其他自定义 Skill；它只覆盖同名的九个 Skill，并逐一检查五个角色的本地工作区是否已经出现对应 `SKILL.md`。
+
 ## 发布冻结任务上下文
 
 任务开始前，先把已提交的工程事实、验收合同和来源清单发布到 Team 共享存储：

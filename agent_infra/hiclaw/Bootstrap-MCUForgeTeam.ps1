@@ -4,7 +4,8 @@ param(
     [string]$TeamName = "mcuforge",
     [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\agent_profile")),
     [switch]$EnableToolBridge,
-    [switch]$EnableResearchBridge
+    [switch]$EnableResearchBridge,
+    [switch]$SkipBundledSkills
 )
 
 $ErrorActionPreference = "Stop"
@@ -164,6 +165,17 @@ do {
 
 if (-not $teamReady) {
     throw "Team did not become Active with all workers ready within 3 minutes"
+}
+
+if (-not $SkipBundledSkills) {
+    $skillInstaller = Join-Path $scriptRoot "Install-MCUForgeSkills.ps1"
+    if (-not (Test-Path -LiteralPath $skillInstaller -PathType Leaf)) {
+        throw "Bundled Skill installer not found: $skillInstaller"
+    }
+    & $skillInstaller -Controller $Controller
+    if ($LASTEXITCODE -ne 0) {
+        throw "Bundled Skill installation failed"
+    }
 }
 
 Invoke-HiClaw -Arguments @("status")

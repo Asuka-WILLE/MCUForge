@@ -7,6 +7,8 @@
 - `skills/`：Keil 构建、固定测试和证据审计入口。
 - `patch_channel/`：只登记和应用经过人工精确批准的统一 diff。
 
+`skills/general-engineering-principles-2026-08-16/` 保存可分发的 `.skill` 包；由 `hiclaw/Install-MCUForgeSkills.ps1` 校验、发布到 MinIO 并同步至 Team Leader 和全部 Worker。Skill 只提供决策与交付规范，不扩大工具权限。
+
 具体项目放在仓库的 `demos/<demo>/` 或用户外部工作区。每次运行都显式绑定：
 
 - `ProjectRoot`：要读取、构建或验证的固件工程；
