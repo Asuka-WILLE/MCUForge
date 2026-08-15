@@ -40,8 +40,16 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\hiclaw\Publish-MCUForg
 
 1. `mcuforge` Team 与 Leader、Requirement、Research、Firmware、Verification 五个角色运行；
 2. Windows STM32 Tool Bridge 通过 Higress MCP Proxy 接入 Firmware/Verification；
-3. Worker 已端到端调用工程快照、固定测试哈希审计和真实 Keil 全量构建；
-4. 所有 Windows 脚本统一使用 PowerShell 7（`pwsh`）；
-5. 烧录、COM 口、源码写入和远程推送仍未开放。
+3. Research Web Bridge 通过 Higress MCP Proxy 仅接入 Research Worker：它只能搜索和读取允许名单内的公开 HTTPS 技术页面，禁止登录、下载、执行、私网访问、仓库写入；
+4. Worker 已端到端调用工程快照、固定测试哈希审计和真实 Keil 全量构建；
+5. 所有 Windows 脚本统一使用 PowerShell 7（`pwsh`）；
+6. 烧录、COM 口、源码写入和远程推送仍未开放。
 
-下一阶段：把工程地图、任务合同和来源清单同步到 Team 共享目录，给 Research Agent 接入受控互联网检索，再设计只能修改白名单文件且可审计回滚的补丁通道。烧录和远程推送始终保留人工审批。
+研究桥的本机服务先启动一次，再配置网关和 Worker：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\tool_bridge\research-web-mcp-server\Start-ResearchWebBridge.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\tool_bridge\research-web-mcp-server\Configure-HiClawResearchProxy.ps1
+```
+
+下一阶段：设计只能修改白名单文件且可审计回滚的补丁通道。烧录和远程推送始终保留人工审批。

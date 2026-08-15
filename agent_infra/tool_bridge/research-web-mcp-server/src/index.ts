@@ -90,6 +90,20 @@ function isSearchDomain(hostname: string): boolean {
   return normalized === "bing.com" || normalized.endsWith(".bing.com");
 }
 
+function hostMatchesDomain(hostname: string, domain: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/\.$/, "");
+  return normalized === domain || normalized.endsWith(`.${domain}`);
+}
+
+function matchesSearchSite(site: SearchSite, hostname: string): boolean {
+  if (site === "any") return isAllowedDomain(hostname);
+  if (site === "official") {
+    return ["st.com", "stmicroelectronics.com", "developer.arm.com", "arm.com"]
+      .some(domain => hostMatchesDomain(hostname, domain));
+  }
+  return hostMatchesDomain(hostname, `${site}.com`) || (site === "csdn" && hostMatchesDomain(hostname, "csdn.net"));
+}
+
 function validateSourceUrl(input: string, allowSearchDomain = false): URL {
   const url = new URL(input);
   if (url.protocol !== "https:") throw new Error("Only HTTPS source URLs are allowed.");
@@ -248,7 +262,7 @@ function createServer(): McpServer {
         searchUrl.searchParams.set("format", "rss");
         searchUrl.searchParams.set("q", scopedQuery);
         const response = await fetchPublicText(searchUrl, true);
-        const allResults = parseBingRss(response.body);
+        const allResults = parseBingRss(response.body).filter(result => matchesSearchSite(site, result.host));
         const items = allResults.slice(offset, offset + limit);
         return toolSuccess({
           provider: "Bing RSS",
