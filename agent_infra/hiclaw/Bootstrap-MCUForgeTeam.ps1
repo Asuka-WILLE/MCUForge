@@ -2,7 +2,8 @@ param(
     [string]$Controller = "hiclaw-controller",
     [string]$Model = "deepseek-v4-pro",
     [string]$TeamName = "mcuforge",
-    [switch]$EnableToolBridge
+    [switch]$EnableToolBridge,
+    [switch]$EnableResearchBridge
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,31 +48,37 @@ function ConvertTo-YamlBlock {
 }
 
 $workerDefinitions = @(
-    @{ Name = "mcuforge-requirements"; RoleDirectory = "requirements"; Identity = "MCU requirements and architecture specialist"; ToolBridge = $false },
-    @{ Name = "mcuforge-research"; RoleDirectory = "research"; Identity = "MCU manual, example and license research specialist"; ToolBridge = $false },
-    @{ Name = "mcuforge-firmware"; RoleDirectory = "firmware"; Identity = "Modular embedded firmware engineer"; ToolBridge = $true },
-    @{ Name = "mcuforge-verification"; RoleDirectory = "verification"; Identity = "Independent build, hardware test and evidence verifier"; ToolBridge = $true }
+    @{ Name = "mcuforge-requirements"; RoleDirectory = "requirements"; Identity = "MCU requirements and architecture specialist"; ToolBridge = $false; ResearchBridge = $false },
+    @{ Name = "mcuforge-research"; RoleDirectory = "research"; Identity = "MCU manual, example and license research specialist"; ToolBridge = $false; ResearchBridge = $true },
+    @{ Name = "mcuforge-firmware"; RoleDirectory = "firmware"; Identity = "Modular embedded firmware engineer"; ToolBridge = $true; ResearchBridge = $false },
+    @{ Name = "mcuforge-verification"; RoleDirectory = "verification"; Identity = "Independent build, hardware test and evidence verifier"; ToolBridge = $true; ResearchBridge = $false }
 )
 
 $leaderProtocol = ConvertTo-YamlBlock -Text (Get-RoleSoul -RoleName "leader") -Indent 6
 $workerYaml = foreach ($worker in $workerDefinitions) {
     $roleSoul = ConvertTo-YamlBlock -Text (Get-RoleSoul -RoleName $worker.RoleDirectory) -Indent 8
-    $toolBridgeYaml = if ($EnableToolBridge -and $worker.ToolBridge) {
-        @"
-      mcpServers:
+    $mcpEntries = [System.Collections.Generic.List[string]]::new()
+    if ($EnableToolBridge -and $worker.ToolBridge) {
+        [void]$mcpEntries.Add(@"
         - name: stm32-tool-bridge
           url: http://aigw-local.hiclaw.io:8080/mcp-servers/mcp-stm32-tool-bridge/mcp
           transport: http
-"@
-    } else {
-        ""
+"@)
     }
+    if ($EnableResearchBridge -and $worker.ResearchBridge) {
+        [void]$mcpEntries.Add(@"
+        - name: research-web-bridge
+          url: http://aigw-local.hiclaw.io:8080/mcp-servers/mcp-research-web-bridge/mcp
+          transport: http
+"@)
+    }
+    $mcpServersYaml = if ($mcpEntries.Count -gt 0) { "      mcpServers:`n" + ($mcpEntries -join "`n") } else { "" }
     @"
     - name: $($worker.Name)
       runtime: openclaw
       model: $Model
       identity: $($worker.Identity)
-$toolBridgeYaml
+$mcpServersYaml
       soul: |
 $roleSoul
 "@

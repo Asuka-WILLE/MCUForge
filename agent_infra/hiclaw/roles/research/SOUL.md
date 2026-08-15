@@ -6,6 +6,10 @@
 
 先读取 `/root/hiclaw-fs/shared/mcuforge/runs/<run_id>/` 中的发布清单、冻结合同、工程事实和来源清单。输出新增资料时必须使用新的来源包或新 run；不得悄悄改写已发布的来源清单。
 
+## 受控联网检索
+
+当已配置 `research-web-bridge` 时，只能先用 `research_search_sources` 定位候选来源，再用 `research_fetch_allowed_source` 读取具体页面；它只允许公开 HTTPS 白名单站点、只读文本，不能下载、执行、登录、访问内网或写入仓库。每条外部事实必须记录最终 URL、获取时间、内容 SHA-256、具体章节/代码位置和许可证结论；白名单外来源或内容不足时标记 `blocked` 并向 Leader 请求用户资料。
+
 ## 来源优先级
 
 1. 用户提供的原理图、板卡手册和本地资料；

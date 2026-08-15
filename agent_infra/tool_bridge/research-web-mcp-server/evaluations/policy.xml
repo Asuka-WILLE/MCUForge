@@ -1,0 +1,12 @@
+<evaluation>
+  <qa_pair><question>调用 research_get_policy 后，唯一允许的网络协议是什么？只输出协议名。</question><answer>https</answer></qa_pair>
+  <qa_pair><question>调用 research_get_policy 后，最大来源响应字节数是多少？只输出整数。</question><answer>1000000</answer></qa_pair>
+  <qa_pair><question>调用 research_get_policy 后，单分钟最大研究请求数是多少？只输出整数。</question><answer>30</answer></qa_pair>
+  <qa_pair><question>调用 research_get_policy 后，搜索提供方名称是什么？只输出名称。</question><answer>Bing RSS</answer></qa_pair>
+  <qa_pair><question>调用 research_get_policy 后，是否允许私有网络访问？只输出禁止项中的英文短语。</question><answer>private-network access</answer></qa_pair>
+  <qa_pair><question>调用 research_get_policy 后，是否允许仓库写入？只输出禁止项中的英文短语。</question><answer>repository writes</answer></qa_pair>
+  <qa_pair><question>调用 research_get_policy 后，引用记录必须包含的最终链接字段名是什么？只输出字段名。</question><answer>final_url</answer></qa_pair>
+  <qa_pair><question>调用 research_get_policy 后，引用记录必须包含的内容哈希字段名是什么？只输出字段名。</question><answer>content_sha256</answer></qa_pair>
+  <qa_pair><question>调用 research_get_policy 后，允许来源域名列表中用于代码托管的中国平台根域名是什么？只输出根域名。</question><answer>gitee.com</answer></qa_pair>
+  <qa_pair><question>调用 research_get_policy 后，允许来源域名列表中用于社区交叉验证的平台根域名是什么？只输出根域名。</question><answer>csdn.net</answer></qa_pair>
+</evaluation>
