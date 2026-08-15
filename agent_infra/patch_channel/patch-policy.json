@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "run_id": "MCUFORGE-FS-001",
+  "contract_version": "1.0.0",
+  "source_baseline_commit": "95f7c67867f81c7169f7f44cec3a16431e91e47d",
+  "patch_rule": "modify_existing_files_only",
+  "max_patch_bytes": 65536,
+  "allowed_paths": [
+    "Core/Src/mcuforge_demo.c",
+    "Core/Inc/mcuforge_demo.h"
+  ],
+  "immutable_paths": [
+    "PC_Tools/mcuforge_testcases/CTRL-001.json",
+    "PC_Tools/mcuforge_testcases/FS-001.json",
+    "PC_Tools/mcuforge_testcases/ESTOP-001.json",
+    "PC_Tools/mcuforge_testcases/REC-001.json",
+    "agent_infra/skills/stm32-evidence-audit/scripts/Test-TestcaseIntegrity.ps1"
+  ],
+  "required_before_apply": [
+    "human_reviews_proposal_patch",
+    "human_enters_exact_approval_token",
+    "git_apply_check_passes",
+    "recorded_source_hashes_match"
+  ],
+  "prohibited_actions": [
+    "automatic_apply",
+    "automatic_commit",
+    "remote_push",
+    "flash",
+    "com_port_operation"
+  ]
+}

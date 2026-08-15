@@ -37,6 +37,7 @@ DebugConfig/
 /agent_infra/tool_bridge/research-web-mcp-server/node_modules/
 /agent_infra/tool_bridge/research-web-mcp-server/dist/
 /agent_infra/tool_bridge/research-web-mcp-server/*.log
+/agent_infra/patch_channel/proposals/
 /UM10550/
 PC_Tools/data/
 PC_Tools/build/

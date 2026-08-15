@@ -28,4 +28,8 @@
 5. 烧录后运行 `CTRL-001`、`FS-001`、`ESTOP-001`、`REC-001`，保存原始遥测和 `result.json`。
 6. Verification Agent 只给出通过/拒绝；失败回传给相应实现 Agent，不能替它改代码。
 
+## 受控补丁通道
+
+HiClaw 当前没有源码写入 MCP 工具。Firmware Agent 只能交付统一 diff 提案；人类使用 [`patch_channel/`](patch_channel/README.md) 的脚本登记、审阅并输入精确审批令牌，才会通过 `git apply --index` 加入 Git 暂存区。该通道二次校验白名单、策略/补丁/源码哈希和当前 HEAD，且不会自动提交、推送、烧录或操作 COM 口。
+
 当前基础设施已经烧录并取得硬件基线：`CTRL-001` 通过，`FS-001`、`ESTOP-001`、`REC-001` 按预期失败。AgentTeams 接下来必须真正实现安全状态机，再用同一组固定测试复测，不能修改测试来迎合结果。
