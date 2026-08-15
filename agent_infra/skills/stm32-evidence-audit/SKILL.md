@@ -10,7 +10,7 @@ compatibility: Git, PowerShell 7
 
 1. Run `scripts/Test-TestcaseIntegrity.ps1`; reject any missing, extra or hash-mismatched fixed test.
 2. Inspect `git status --short` and `git diff --check` before reading conclusions.
-3. Compare modified paths with the role's allowed scope in `agent_infra/roles/`.
+3. Compare modified paths with the active Demo Profile's `roles/` and `patch-policy.json`.
 4. Require separate evidence levels:
    - static: Python compile/unit tests;
    - build: real Keil exit code, error/warning counts and HEX hash;

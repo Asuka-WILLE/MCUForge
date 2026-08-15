@@ -6,7 +6,7 @@
 
 ## 输入
 
-- `agent_infra/tasks/implement-demo-safety.md`
+- `tasks/implement-demo-safety.md`
 - `docs/serial-control-protocol.md`
 - `PC_Tools/mcuforge_testcases/*.json`
 - 用户对阈值、显示文案和烧录权限的最新明确决定

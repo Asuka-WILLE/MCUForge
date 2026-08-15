@@ -1,13 +1,14 @@
 param(
     [switch]$Rebuild,
     [string]$KeilPath = "C:\Users\hz_wu\AppData\Local\Keil_v5\UV4\UV4.exe",
-    [string]$Target = "UM10550"
+    [string]$Target = "UM10550",
+    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\..\demos\um10550-board-demo\firmware"))
 )
 
 $ErrorActionPreference = "Stop"
-$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\.."))
-$projectPath = Join-Path $repoRoot "MDK-ARM\UM10550.uvprojx"
-$buildDir = Join-Path $repoRoot "MDK-ARM\UM10550"
+$projectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
+$projectPath = Join-Path $projectRoot "MDK-ARM\UM10550.uvprojx"
+$buildDir = Join-Path $projectRoot "MDK-ARM\UM10550"
 $logPath = Join-Path $buildDir "UM10550.build_log.htm"
 $hexPath = Join-Path $buildDir "UM10550.hex"
 $axfPath = Join-Path $buildDir "UM10550.axf"
@@ -22,7 +23,7 @@ if (-not (Test-Path -LiteralPath $projectPath -PathType Leaf)) {
 $mode = if ($Rebuild) { "-r" } else { "-b" }
 $process = Start-Process -FilePath $KeilPath `
     -ArgumentList @($mode, $projectPath, "-t", $Target) `
-    -WorkingDirectory $repoRoot -WindowStyle Hidden -Wait -PassThru
+    -WorkingDirectory $projectRoot -WindowStyle Hidden -Wait -PassThru
 
 $logText = if (Test-Path -LiteralPath $logPath -PathType Leaf) {
     Get-Content -LiteralPath $logPath -Raw

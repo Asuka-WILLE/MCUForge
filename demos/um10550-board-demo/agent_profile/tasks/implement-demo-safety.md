@@ -17,7 +17,7 @@
 
 - Keil `UM10550` 全量构建：0 errors、0 warnings。
 - Python 编译与协议单元测试通过。
-- 固定测试哈希与 `agent_infra/testcase-lock.json` 一致。
+- 固定测试哈希与同目录的 `../testcase-lock.json` 一致。
 - `CTRL-001`、`FS-001`、`REC-001`、`ESTOP-001` 全部通过。
 - 每个硬件测试保留 `result.json` 和原始 `telemetry.jsonl`。
 

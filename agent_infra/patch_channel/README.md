@@ -20,12 +20,12 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\patch_channel\New-MCUF
   -ProposalId FS-001-001
 ```
 
-3. 首次可追加 `-DryRun`，它会完成全部校验但不创建任何提案文件。正式登记时，脚本会要求跟踪工作树干净，校验补丁格式、白名单、基础源码哈希和 `git apply --check`，然后在 `agent_infra/patch_channel/proposals/FS-001-001/` 写入不可覆盖的 `proposal.patch` 与 `proposal.json`。该运行产物被 Git 忽略，但保留在本机供审计。
+3. 首次可追加 `-DryRun`，它会完成全部校验但不创建任何提案文件。正式登记时，脚本会要求跟踪工作树干净，校验补丁格式、白名单、基础源码哈希和 `git apply --check`，然后在对应 Demo 的 `agent_profile/patch_proposals/FS-001-001/` 写入不可覆盖的 `proposal.patch` 与 `proposal.json`。该运行产物被 Git 忽略，但保留在本机供审计。
 4. 人类先审阅这两个文件；只有确定要把补丁加入 Git 暂存区时，才从 `proposal.json` 读取 SHA-256 并执行：
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\patch_channel\Apply-MCUForgeApprovedPatch.ps1 `
-  -ProposalDirectory agent_infra\patch_channel\proposals\FS-001-001 `
+  -ProposalDirectory demos\um10550-board-demo\agent_profile\patch_proposals\FS-001-001 `
   -ApprovalToken "APPLY FS-001-001 <proposal.json 内 patch.sha256>"
 ```
 

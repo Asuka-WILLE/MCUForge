@@ -1,15 +1,19 @@
 param(
     [string]$Port,
     [string]$Case = "FS-001",
-    [switch]$List
+    [switch]$List,
+    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\..\demos\um10550-board-demo\firmware")),
+    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\..\demos\um10550-board-demo\agent_profile"))
 )
 
 $ErrorActionPreference = "Stop"
-$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\.."))
-$integrityScript = Join-Path $repoRoot "agent_infra\skills\stm32-evidence-audit\scripts\Test-TestcaseIntegrity.ps1"
-$runner = Join-Path $repoRoot "PC_Tools\mcuforge_test_runner.py"
+$agentRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
+$projectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
+$profileRoot = [System.IO.Path]::GetFullPath($ProfileRoot)
+$integrityScript = Join-Path $agentRoot "skills\stm32-evidence-audit\scripts\Test-TestcaseIntegrity.ps1"
+$runner = Join-Path $projectRoot "PC_Tools\mcuforge_test_runner.py"
 
-& $integrityScript
+& $integrityScript -ProjectRoot $projectRoot -ProfileRoot $profileRoot
 if (-not $?) {
     exit 1
 }

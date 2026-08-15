@@ -1,5 +1,6 @@
 param(
     [string]$RunId = "MCUFORGE-FS-001",
+    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\agent_profile")),
     [string]$CarrierWorker = "hiclaw-worker-mcuforge-firmware",
     [string]$LeaderWorker = "hiclaw-worker-mcuforge-lead",
     [string[]]$OpenClawWorkers = @(
@@ -15,7 +16,7 @@ Set-StrictMode -Version Latest
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent (Split-Path -Parent $scriptRoot)
-$contextSource = Join-Path $repoRoot "agent_infra\shared_context\$RunId"
+$contextSource = Join-Path ([System.IO.Path]::GetFullPath($ProfileRoot)) "shared_context\$RunId"
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw "docker command not found"

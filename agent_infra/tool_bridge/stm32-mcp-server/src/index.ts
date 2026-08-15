@@ -40,9 +40,12 @@ interface ToolErrorShape {
 }
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = path.resolve(moduleDirectory, "../../../..");
 const projectRoot = path.resolve(
-  process.env.MCUFORGE_PROJECT_ROOT ?? path.join(moduleDirectory, "../../../..")
+  process.env.MCUFORGE_PROJECT_ROOT ?? path.join(repositoryRoot, "demos/um10550-board-demo/firmware")
 );
+const agentRoot = path.resolve(process.env.MCUFORGE_AGENT_ROOT ?? path.join(repositoryRoot, "agent_infra"));
+const profileRoot = path.resolve(process.env.MCUFORGE_PROFILE_ROOT ?? path.join(repositoryRoot, "demos/um10550-board-demo/agent_profile"));
 const bridgeToken = process.env.MCUFORGE_BRIDGE_TOKEN ?? "";
 const consumerHashPath = process.env.MCUFORGE_CONSUMER_HASH_PATH ?? "";
 const port = Number.parseInt(process.env.MCUFORGE_BRIDGE_PORT ?? String(DEFAULT_PORT), 10);
@@ -88,6 +91,15 @@ function resolveProjectPath(relativePath: string): string {
   const relative = path.relative(projectRoot, resolved);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error("Path traversal outside the configured project root is not allowed.");
+  }
+  return resolved;
+}
+
+function resolveAgentPath(relativePath: string): string {
+  const resolved = path.resolve(agentRoot, relativePath);
+  const relative = path.relative(agentRoot, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Tool script path escaped the configured agent runtime root.");
   }
   return resolved;
 }
@@ -285,8 +297,8 @@ function createServer(): McpServer {
     },
     async () => {
       try {
-        const script = resolveProjectPath("agent_infra/skills/stm32-evidence-audit/scripts/Test-TestcaseIntegrity.ps1");
-        const result = await runCommand("pwsh.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script], 30_000);
+        const script = resolveAgentPath("skills/stm32-evidence-audit/scripts/Test-TestcaseIntegrity.ps1");
+        const result = await runCommand("pwsh.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ProjectRoot", projectRoot, "-ProfileRoot", profileRoot], 30_000);
         if (result.exit_code !== 0) {
           return toolError(result.stdout || result.stderr || "Test integrity check failed.", "Treat the mismatch as a hard stop; do not edit the tests or lock to make it pass.");
         }
@@ -309,8 +321,8 @@ function createServer(): McpServer {
     },
     async ({ rebuild }) => {
       try {
-        const script = resolveProjectPath("agent_infra/skills/stm32-keil-build/scripts/Invoke-KeilBuild.ps1");
-        const args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script];
+        const script = resolveAgentPath("skills/stm32-keil-build/scripts/Invoke-KeilBuild.ps1");
+        const args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ProjectRoot", projectRoot];
         if (rebuild) args.push("-Rebuild");
         const result = await runCommand("pwsh.exe", args, 5 * 60_000);
         let evidence: unknown = null;
@@ -353,8 +365,10 @@ async function tokenMatches(authorization: string | undefined, bridgeHeader: str
 async function main(): Promise<void> {
   if (!Number.isInteger(port) || port < 1024 || port > 65_535) throw new Error("MCUFORGE_BRIDGE_PORT must be between 1024 and 65535.");
   if (bridgeToken.length < 32) throw new Error("MCUFORGE_BRIDGE_TOKEN must contain at least 32 characters.");
-  const rootStat = await fs.stat(projectRoot);
-  if (!rootStat.isDirectory()) throw new Error("MCUFORGE_PROJECT_ROOT is not a directory.");
+  for (const [name, configuredPath] of [["MCUFORGE_PROJECT_ROOT", projectRoot], ["MCUFORGE_AGENT_ROOT", agentRoot], ["MCUFORGE_PROFILE_ROOT", profileRoot]] as const) {
+    const stat = await fs.stat(configuredPath);
+    if (!stat.isDirectory()) throw new Error(`${name} is not a directory.`);
+  }
 
   const app = createMcpExpressApp({ host: "0.0.0.0" });
   app.use(hostHeaderValidation(["localhost", "127.0.0.1", "host.docker.internal", "aigw-local.hiclaw.io"]));

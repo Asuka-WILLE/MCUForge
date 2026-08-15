@@ -1,6 +1,6 @@
-# MCUForge HiClaw Team
+# MUC_AGENT HiClaw Team
 
-本目录保存 MCUForge 在 HiClaw（AgentTeams 原名）中的可复现团队配置。它面向两类任务：接手已有 MCU 工程，以及从器件和需求出发建立新工程。
+本目录保存 MUC_AGENT 在 HiClaw（AgentTeams 原名）中的可复现团队运行时。它面向两类任务：接手已有 MCU 工程，以及从器件和需求出发建立新工程；具体角色与冻结上下文由 `demos/<demo>/agent_profile/` 提供，而不与平台代码混放。
 
 ## 团队
 
@@ -12,7 +12,7 @@
 | `mcuforge-firmware` | Firmware Engineer | 受限源码变更和构建摘要 |
 | `mcuforge-verification` | Verification & Evidence | 独立验证和证据报告 |
 
-核心角色默认使用 `deepseek-v4-pro`。当前 HiClaw 版本由 Team 资源管理 Leader，普通 Worker 接口不能覆盖其 SOUL；项目专属 Leader 规则保存在 `roles/leader/SOUL.md`，并在任务启动时作为团队协议传入。其余四个 Worker 直接使用各自的专属 SOUL。Worker 只通过结构化交接物协作，不能用聊天结论代替合同、来源、构建或测试证据。
+核心角色默认使用 `deepseek-v4-pro`。当前 HiClaw 版本由 Team 资源管理 Leader，普通 Worker 接口不能覆盖其 SOUL；UM10550 示例专属规则位于 `demos/um10550-board-demo/agent_profile/hiclaw_roles/`，并在任务启动时作为团队协议传入。Worker 只通过结构化交接物协作，不能用聊天结论代替合同、来源、构建或测试证据。
 
 ## 创建或更新
 

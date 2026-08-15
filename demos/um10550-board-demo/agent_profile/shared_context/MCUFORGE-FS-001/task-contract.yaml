@@ -47,7 +47,7 @@ implementation_scope:
     - PC_Tools/mcuforge_testcases/FS-001.json
     - PC_Tools/mcuforge_testcases/ESTOP-001.json
     - PC_Tools/mcuforge_testcases/REC-001.json
-    - agent_infra/skills/stm32-evidence-audit/scripts/Test-TestcaseIntegrity.ps1
+    - agent_profile/testcase-lock.json
 
 verification_order:
   - 校验冻结合同与固定测试哈希。

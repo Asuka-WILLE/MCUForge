@@ -1,16 +1,20 @@
 param(
     [Parameter(Mandatory)][ValidateScript({ Test-Path -LiteralPath $_ -PathType Container })][string]$ProposalDirectory,
     [Parameter(Mandatory)][string]$ApprovalToken,
-    [string]$PolicyFile = (Join-Path $PSScriptRoot "patch-policy.json")
+    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\firmware")),
+    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\agent_profile")),
+    [string]$PolicyFile = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\agent_profile\patch-policy.json"))
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 Import-Module (Join-Path $PSScriptRoot "PatchChannel.Common.psm1") -Force
-$repositoryRoot = Get-MCUForgeRepositoryRoot -StartPath $PSScriptRoot
+$projectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
+$profileRoot = [System.IO.Path]::GetFullPath($ProfileRoot)
+$repositoryRoot = Get-MCUForgeRepositoryRoot -StartPath $projectRoot
 $policy = Get-MCUForgePatchPolicy -PolicyPath $PolicyFile
-Assert-MCUForgeTrackedWorktreeClean -RepositoryRoot $repositoryRoot
+Assert-MCUForgeTrackedWorktreeClean -RepositoryRoot $projectRoot
 
 $resolvedProposal = (Resolve-Path -LiteralPath $ProposalDirectory).Path
 $manifestPath = Join-Path $resolvedProposal "proposal.json"
@@ -26,7 +30,7 @@ if ($manifest.contract.policy_sha256 -ne $policy.Sha256) {
     throw "Patch policy changed after proposal creation. Create and review a new proposal."
 }
 
-$patch = Test-MCUForgePatchFile -RepositoryRoot $repositoryRoot -PatchFile $patchPath -Policy $policy
+$patch = Test-MCUForgePatchFile -RepositoryRoot $projectRoot -PatchFile $patchPath -Policy $policy
 if ($patch.Sha256 -ne $manifest.patch.sha256) {
     throw "Proposal patch hash does not match proposal.json."
 }
@@ -35,12 +39,12 @@ if ($ApprovalToken -cne $expectedToken) {
     throw "Approval token mismatch. Review proposal.json and enter the exact token; no changes were made."
 }
 
-$currentHead = (Invoke-MCUForgeGit -RepositoryRoot $repositoryRoot -Arguments @("rev-parse", "HEAD") | Select-Object -First 1).Trim()
+$currentHead = (Invoke-MCUForgeGit -RepositoryRoot $projectRoot -Arguments @("rev-parse", "HEAD") | Select-Object -First 1).Trim()
 if ($currentHead -ne $manifest.git.head) {
     throw "Git HEAD changed since proposal creation. Create a new proposal against the current baseline."
 }
 foreach ($expected in @($manifest.source_hashes)) {
-    $sourcePath = Join-Path $repositoryRoot $expected.path
+    $sourcePath = Join-Path $projectRoot $expected.path
     if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
         throw "Expected source file is missing: $($expected.path)"
     }
@@ -50,7 +54,7 @@ foreach ($expected in @($manifest.source_hashes)) {
     }
 }
 
-Invoke-MCUForgeGit -RepositoryRoot $repositoryRoot -Arguments @("apply", "--index", "--whitespace=error", "--", $patch.Path) | Out-Null
+Invoke-MCUForgeGit -RepositoryRoot $projectRoot -Arguments @("apply", "--index", "--whitespace=error", "--", $patch.Path) | Out-Null
 $record = [ordered]@{
     schema_version = 1
     proposal_id = $manifest.proposal_id

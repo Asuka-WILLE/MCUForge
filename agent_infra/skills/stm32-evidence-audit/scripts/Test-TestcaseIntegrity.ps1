@@ -1,8 +1,14 @@
+param(
+    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\..\demos\um10550-board-demo\firmware")),
+    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\..\demos\um10550-board-demo\agent_profile"))
+)
+
 $ErrorActionPreference = "Stop"
-$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\.."))
-$lockPath = Join-Path $repoRoot "agent_infra\testcase-lock.json"
+$projectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
+$profileRoot = [System.IO.Path]::GetFullPath($ProfileRoot)
+$lockPath = Join-Path $profileRoot "testcase-lock.json"
 $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
-$caseRoot = Join-Path $repoRoot ($lock.root -replace '/', '\')
+$caseRoot = Join-Path $profileRoot ($lock.root -replace '/', '\')
 $failures = @()
 
 foreach ($property in $lock.files.PSObject.Properties) {

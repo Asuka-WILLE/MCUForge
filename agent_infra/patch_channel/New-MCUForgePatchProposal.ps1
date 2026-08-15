@@ -1,7 +1,9 @@
 param(
     [Parameter(Mandatory)][ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })][string]$PatchFile,
     [Parameter(Mandatory)][ValidatePattern("^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$")][string]$ProposalId,
-    [string]$PolicyFile = (Join-Path $PSScriptRoot "patch-policy.json"),
+    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\firmware")),
+    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\agent_profile")),
+    [string]$PolicyFile = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\agent_profile\patch-policy.json")),
     [switch]$DryRun
 )
 
@@ -9,27 +11,29 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 Import-Module (Join-Path $PSScriptRoot "PatchChannel.Common.psm1") -Force
-$repositoryRoot = Get-MCUForgeRepositoryRoot -StartPath $PSScriptRoot
+$projectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
+$profileRoot = [System.IO.Path]::GetFullPath($ProfileRoot)
+$repositoryRoot = Get-MCUForgeRepositoryRoot -StartPath $projectRoot
 $policy = Get-MCUForgePatchPolicy -PolicyPath $PolicyFile
-Assert-MCUForgeTrackedWorktreeClean -RepositoryRoot $repositoryRoot
+Assert-MCUForgeTrackedWorktreeClean -RepositoryRoot $projectRoot
 
-$currentHead = (Invoke-MCUForgeGit -RepositoryRoot $repositoryRoot -Arguments @("rev-parse", "HEAD") | Select-Object -First 1).Trim()
-$branch = (Invoke-MCUForgeGit -RepositoryRoot $repositoryRoot -Arguments @("branch", "--show-current") | Select-Object -First 1).Trim()
-& git -C $repositoryRoot merge-base --is-ancestor $policy.Data.source_baseline_commit HEAD
+$currentHead = (Invoke-MCUForgeGit -RepositoryRoot $projectRoot -Arguments @("rev-parse", "HEAD") | Select-Object -First 1).Trim()
+$branch = (Invoke-MCUForgeGit -RepositoryRoot $projectRoot -Arguments @("branch", "--show-current") | Select-Object -First 1).Trim()
+& git -C $projectRoot merge-base --is-ancestor $policy.Data.source_baseline_commit HEAD
 if ($LASTEXITCODE -ne 0) {
     throw "Current HEAD is not descended from the policy source baseline. Create a new frozen policy for this branch."
 }
 $baselineDiffArguments = @(
     "diff", "--name-only", "$($policy.Data.source_baseline_commit)..HEAD", "--"
 ) + @($policy.Data.allowed_paths)
-$sourceChangesSinceBaseline = Invoke-MCUForgeGit -RepositoryRoot $repositoryRoot -Arguments $baselineDiffArguments
+$sourceChangesSinceBaseline = Invoke-MCUForgeGit -RepositoryRoot $projectRoot -Arguments $baselineDiffArguments
 if (($sourceChangesSinceBaseline -join "`n").Trim()) {
     throw "Allowed source files changed after the frozen source baseline. Freeze a new policy before proposing another patch."
 }
 
-$patch = Test-MCUForgePatchFile -RepositoryRoot $repositoryRoot -PatchFile $PatchFile -Policy $policy
-$sourceHashes = Get-MCUForgeSourceHashes -RepositoryRoot $repositoryRoot -Policy $policy
-$proposalRoot = Join-Path $PSScriptRoot "proposals"
+$patch = Test-MCUForgePatchFile -RepositoryRoot $projectRoot -PatchFile $PatchFile -Policy $policy
+$sourceHashes = Get-MCUForgeSourceHashes -RepositoryRoot $projectRoot -Policy $policy
+$proposalRoot = Join-Path $profileRoot "patch_proposals"
 $proposalDirectory = Join-Path $proposalRoot $ProposalId
 if (Test-Path -LiteralPath $proposalDirectory) {
     throw "Proposal directory already exists and will not be overwritten: $proposalDirectory"
@@ -49,6 +53,7 @@ $manifest = [ordered]@{
     git = [ordered]@{
         branch = $branch
         head = $currentHead
+        project_root = [System.IO.Path]::GetRelativePath($repositoryRoot, $projectRoot).Replace("\", "/")
     }
     patch = [ordered]@{
         file = "proposal.patch"

@@ -2,6 +2,7 @@ param(
     [string]$Controller = "hiclaw-controller",
     [string]$Model = "deepseek-v4-pro",
     [string]$TeamName = "mcuforge",
+    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\agent_profile")),
     [switch]$EnableToolBridge,
     [switch]$EnableResearchBridge
 )
@@ -10,7 +11,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$rolesRoot = Join-Path $scriptRoot "roles"
+$rolesRoot = Join-Path ([System.IO.Path]::GetFullPath($ProfileRoot)) "hiclaw_roles"
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw "docker command not found"
