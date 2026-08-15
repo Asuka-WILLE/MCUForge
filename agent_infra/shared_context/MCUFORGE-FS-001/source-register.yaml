@@ -1,0 +1,33 @@
+sources:
+  - id: project-map
+    type: local_project_record
+    path: docs/current-project-map.md
+    use: MCU、Keil Target、Demo 隔离和接口边界事实。
+    status: approved
+  - id: pc-tool-map
+    type: local_project_record
+    path: docs/current-pc-tool-map.md
+    use: PC 虚拟手柄、USB CDC 遥测与固定测试事实。
+    status: approved
+  - id: demo-build-evidence
+    type: local_build_evidence
+    path: docs/evidence/demo-infrastructure-build-2026-08-14.md
+    use: 构建命令、错误/警告、产物哈希与证据边界。
+    status: approved
+  - id: fixed-tests
+    type: immutable_acceptance_tests
+    path: PC_Tools/mcuforge_testcases
+    use: CTRL-001、FS-001、ESTOP-001、REC-001 的验收定义。
+    status: approved
+  - id: demo-source
+    type: local_source
+    path: Core/Src/mcuforge_demo.c
+    use: 当前 Demo 状态、TFT 与 JSON 遥测的实现事实。
+    status: approved
+research_gaps:
+  - id: no_external_source_needed_for_fs001
+    reason: 本 run 的实现范围限定在已有 Demo 状态机与已冻结的 PC 协议；不应为凑资料而引入无关例程。
+    research_policy: 若实现发现板级、芯片级或协议事实不足，Research Agent 必须先请求用户资料或新增可追溯来源包。
+license_policy:
+  - 本 run 不复制外部代码。
+  - 后续外部资料优先级遵循 Research SOUL：用户资料、原厂、板卡厂商、明确许可证仓库、社区交叉验证。

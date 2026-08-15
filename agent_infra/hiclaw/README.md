@@ -24,6 +24,16 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\hiclaw\Bootstrap-MCUFo
 
 脚本是幂等的：已存在的 Team/Worker 会被更新，不会重复创建。它不会烧录、推送或删除任何仓库文件。
 
+## 发布冻结任务上下文
+
+任务开始前，先把已提交的工程事实、验收合同和来源清单发布到 Team 共享存储：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\hiclaw\Publish-MCUForgeSharedContext.ps1
+```
+
+默认发布 `MCUFORGE-FS-001`。脚本拒绝从脏工作树发布，记录内容哈希，并拒绝用相同 `run_id` 覆盖不同上下文；要修改合同，必须创建新的 run。四个 OpenClaw Worker 使用 `/root/hiclaw-fs/shared/mcuforge/runs/<run_id>/`，Leader 也同步至同一路径。
+
 ## 当前接入状态
 
 已完成：
