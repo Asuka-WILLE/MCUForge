@@ -2,6 +2,8 @@
 
 MUC_AGENT 是面向嵌入式与单片机项目的协作式开发 Agent 平台。它不是某一辆车或某一块开发板的控制程序：用户给出需求后，Agent 团队会先冻结验收合同、检索公开手册与例程、生成受限补丁提案，并用真实构建和固定测试给出可审计结论。
 
+> **第一次使用或准备把本仓库交给其他人？** 请先阅读 [HiClaw 完整上手手册](agent_infra/hiclaw/README.md)。其中包含环境要求、Docker/HiClaw 初始化、两个 MCP Bridge 的启动与注册、发任务方式、补丁审批、重启和排错；不要只运行本页的一两条命令。
+
 ## 它解决什么
 
 - **接手已有工程**：读取项目结构、手册、历史证据和固定测试，而不是凭聊天猜测。
@@ -35,11 +37,6 @@ MUC_AGENT/
 
 ## 从 UM10550 示例开始
 
-示例入口在 [demos/um10550-board-demo](demos/um10550-board-demo/README.md)。它使用开发板、TFT、USB CDC 和电脑虚拟手柄，不需要车、遥控器或电机。
-
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\hiclaw\Bootstrap-MCUForgeTeam.ps1 -EnableToolBridge -EnableResearchBridge
-pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\tool_bridge\stm32-mcp-server\Start-STM32ToolBridge.ps1
-```
+示例入口在 [demos/um10550-board-demo](demos/um10550-board-demo/README.md)。它使用开发板、TFT、USB CDC 和电脑虚拟手柄，不需要车、遥控器或电机。完整启动顺序在 [HiClaw 完整上手手册](agent_infra/hiclaw/README.md#5-首次启动按顺序执行)：先启动两个本机 Bridge，再注册 MCP、创建 Team 并验证五个角色。
 
 运行 Team 或桥接服务不会写入固件、不会烧录、不会打开 COM 口，也不会推送远端；这些动作始终需要单独的人工批准。
