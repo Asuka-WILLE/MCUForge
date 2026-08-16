@@ -1,6 +1,6 @@
 # MCUForge 受控补丁通道
 
-这一通道把“Agent 建议代码”与“改动真实工程”分开：Agent 只能交付统一 diff 文本；本机脚本只会先登记、校验并生成审计提案；只有人类输入精确审批令牌后，脚本才把补丁加入 Git 暂存区。它不会自动提交、推送、烧录或操作 COM 口。
+这一通道把“Agent 建议代码”与“改动真实工程”分开：Agent 只能交付统一 diff 文本；本机脚本只会先登记、校验并生成审计提案；只有人类输入精确审批令牌后，脚本才把补丁物化到工作树并加入 Git 暂存区。它不会自动提交、推送、烧录或操作 COM 口。
 
 ## 固定边界
 
@@ -21,8 +21,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\patch_channel\New-MCUF
   -ProposalId FS-001-001
 ```
 
-3. 首次可追加 `-DryRun`，它会完成全部校验但不创建任何提案文件。正式登记时，脚本会要求跟踪工作树干净，校验补丁格式、白名单、源码哈希和 `git apply --check`，并记录 `baseline_validation.mode`（精确基线、非固件追加或非源码历史漂移）。然后在对应 Demo 的 `agent_profile/patch_proposals/FS-001-001/` 写入不可覆盖的 `proposal.patch` 与 `proposal.json`。该运行产物被 Git 忽略，但保留在本机供审计。
-4. 人类先审阅这两个文件；只有确定要把补丁加入 Git 暂存区时，才从 `proposal.json` 读取 SHA-256 并执行：
+3. 首次可追加 `-DryRun`，它会完成全部校验但不创建任何提案文件。正式登记时，脚本会要求跟踪工作树干净，校验补丁格式、白名单、源码哈希和以真实 Git 根配合项目相对目录执行的 `git apply --index --check`，并记录 `baseline_validation.mode`（精确基线、非固件追加或非源码历史漂移）。然后在对应 Demo 的 `agent_profile/patch_proposals/FS-001-001/` 写入不可覆盖的 `proposal.patch` 与 `proposal.json`。该运行产物被 Git 忽略，但保留在本机供审计。
+4. 人类先审阅这两个文件；只有确定要把补丁物化到工作树并加入 Git 暂存区时，才从 `proposal.json` 读取 SHA-256 并执行：
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\patch_channel\Apply-MCUForgeApprovedPatch.ps1 `
@@ -30,7 +30,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\patch_channel\Apply-MC
   -ApprovalToken "APPLY FS-001-001 <proposal.json 内 patch.sha256>"
 ```
 
-5. 该脚本会再次校验策略、Git HEAD、补丁哈希和两份源码哈希；成功后仅执行 `git apply --index`，并留下 `apply-record.json`。接着由 Verification Agent 执行固定测试完整性检查与真实 Keil 构建；人类审阅通过后再正常 `git commit`。
+5. 该脚本会再次校验策略、Git HEAD、补丁哈希和两份源码哈希；成功后执行 `git apply --index`，确认没有 `Skipped patch`，并检查目标路径已进入暂存区、源码哈希确实变化且工作树无未暂存差异，最后才留下 `apply-record.json`。接着由 Verification Agent 用 `stm32_get_git_diff(cached=true)` 独立检查暂存内容，再执行固定测试完整性检查与真实 Keil 构建；人类审阅通过后再正常 `git commit`。
 
 ## 自动防漂移规则
 

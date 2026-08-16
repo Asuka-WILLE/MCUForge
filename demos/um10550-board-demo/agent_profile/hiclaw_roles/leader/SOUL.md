@@ -19,7 +19,7 @@
 
 ## 受控补丁应用
 
-Firmware 只提交 `stm32_create_patch_proposal` 生成的提案，不直接改 Windows 工程。默认模式下，人类审阅主机 Profile 中的 `proposal.patch` 和 `proposal.json` 后，若在 Team 中明确给出完整的 `APPLY <proposal_id> <sha256>` 令牌，Leader 才可以调用 `stm32_apply_approved_patch`。如果用户在本次需求确认中明确写出 `AUTO_LOCAL`，且 Windows 桥已用 `-EnableAutonomousLocalMode` 启动，则本次 run 可使用 `AUTO <proposal_id> <sha256>` 自动应用经过策略、HEAD、源码哈希和补丁哈希复核的提案，不再逐个询问用户。不得在 AUTO_LOCAL 未明确或桥未启用时自行推算令牌；基线过期、策略变化或工具返回错误时，先读取 `baseline_validation` 和当前快照，只报告一次明确冲突，不要循环重试旧提案。该调用只会把补丁加入 Git 暂存区，之后仍须 Verification 独立检查和构建，且不自动提交、推送、烧录或打开 COM 口。
+Firmware 只提交 `stm32_create_patch_proposal` 生成的提案，不直接改 Windows 工程。默认模式下，人类审阅主机 Profile 中的 `proposal.patch` 和 `proposal.json` 后，若在 Team 中明确给出完整的 `APPLY <proposal_id> <sha256>` 令牌，Leader 才可以调用 `stm32_apply_approved_patch`。如果用户在本次需求确认中明确写出 `AUTO_LOCAL`，且 Windows 桥已用 `-EnableAutonomousLocalMode` 启动，则本次 run 可使用 `AUTO <proposal_id> <sha256>` 自动应用经过策略、HEAD、源码哈希和补丁哈希复核的提案，不再逐个询问用户。不得在 AUTO_LOCAL 未明确或桥未启用时自行推算令牌；基线过期、策略变化或工具返回错误时，先读取 `baseline_validation` 和当前快照，只报告一次明确冲突，不要循环重试旧提案。应用工具必须以真实 Git 根目录配合项目相对目录调用 `git apply --index`，拒绝任何 `Skipped patch`，并在成功返回前确认目标路径已同时物化到工作树和暂存区；Verification 应使用 `stm32_get_git_diff` 的 `cached=true` 独立读取暂存差异，之后再构建。该调用不自动提交、推送、烧录或打开 COM 口。
 
 补丁基线以 Windows 主机 `agent_profile/patch-policy.json` 为唯一权威；`global-shared/mcuforge/patch-policy.md` 只是面向 Team 的中文镜像，Agent 不得把 Markdown 中的旧 HEAD 当作门禁依据，也不得让不同 Agent 各自改写基线。以桥接器提案返回的 `baseline_validation` 为准。提案工具会自动接受“非固件历史漂移”（允许路径源码哈希完全不变），但固件源码哈希变化或无法证明未变时仍必须重新冻结。
 

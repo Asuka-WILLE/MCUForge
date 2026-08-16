@@ -54,15 +54,58 @@ foreach ($expected in @($manifest.source_hashes)) {
     }
 }
 
-Invoke-MCUForgeGit -RepositoryRoot $projectRoot -Arguments @("apply", "--index", "--whitespace=error", "--", $patch.Path) | Out-Null
+$projectRelative = [System.IO.Path]::GetRelativePath($repositoryRoot, $projectRoot).Replace("\", "/")
+$directoryArguments = @()
+if ($projectRelative -ne ".") {
+    $directoryArguments = @("--directory=$projectRelative")
+}
+$applyArguments = @("apply", "--index", "--verbose", "--whitespace=error") + $directoryArguments + @("--", $patch.Path)
+$applyOutput = @(Invoke-MCUForgeGit -RepositoryRoot $repositoryRoot -Arguments $applyArguments 2>&1)
+$skippedPatches = @($applyOutput | Where-Object { $_.ToString() -match "(?i)\bSkipped patch\b" })
+if ($skippedPatches.Count -gt 0) {
+    throw "Git reported a skipped patch even though the apply command returned success: $($skippedPatches -join ' ' )"
+}
+
+$expectedPaths = @($patch.ChangedPaths)
+$stagedPaths = @(Invoke-MCUForgeGit -RepositoryRoot $projectRoot -Arguments @("diff", "--cached", "--name-only", "--") | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+$worktreePaths = @(Invoke-MCUForgeGit -RepositoryRoot $projectRoot -Arguments @("diff", "--name-only", "--") | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+$missingStaged = @($expectedPaths | Where-Object { $stagedPaths -notcontains $_ })
+$unexpectedStaged = @($stagedPaths | Where-Object { $expectedPaths -notcontains $_ })
+if ($missingStaged.Count -gt 0 -or $unexpectedStaged.Count -gt 0) {
+    throw "Indexed patch postcondition failed. Expected staged paths=$($expectedPaths -join ','); actual staged paths=$($stagedPaths -join ','); missing=$($missingStaged -join ','); unexpected=$($unexpectedStaged -join ',')."
+}
+if ($worktreePaths.Count -gt 0) {
+    throw "Indexed patch postcondition failed: worktree has unstaged paths after apply: $($worktreePaths -join ', ')"
+}
+
+$sourceHashesAfter = foreach ($expected in @($manifest.source_hashes)) {
+    $sourcePath = Join-Path $projectRoot $expected.path
+    [ordered]@{
+        path = [string]$expected.path
+        sha256 = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+}
+foreach ($expected in @($manifest.source_hashes | Where-Object { $patch.ChangedPaths -contains $_.path })) {
+    $actual = @($sourceHashesAfter | Where-Object { $_.path -eq $expected.path })[0]
+    if ($null -eq $actual -or $actual.sha256 -eq ([string]$expected.sha256).ToLowerInvariant()) {
+        throw "Indexed patch postcondition failed: source hash did not change for $($expected.path)."
+    }
+}
+
 $record = [ordered]@{
     schema_version = 1
     proposal_id = $manifest.proposal_id
     status = "applied_to_git_index"
     applied_at_utc = [DateTime]::UtcNow.ToString("o")
     git_head_before_apply = $currentHead
+    git_root = $repositoryRoot
+    project_relative = $projectRelative
     patch_sha256 = $patch.Sha256
     changed_paths = $patch.ChangedPaths
+    materialized_to_worktree = $true
+    staged_paths = $stagedPaths
+    unstaged_paths = $worktreePaths
+    source_hashes_after = $sourceHashesAfter
     next_required_actions = @(
         "Inspect git diff --cached.",
         "Run fixed-test integrity and a real Keil build.",

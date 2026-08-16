@@ -9,7 +9,7 @@
 | `stm32_get_project_snapshot` | Git 分支、HEAD、状态和文件数 | 只读，不访问远端 |
 | `stm32_list_project_files` | 分页列出 Git 跟踪文件 | 不暴露生成物和依赖目录 |
 | `stm32_read_project_file` | 分页读取受限文本文件 | 拒绝越界、密钥和大文件 |
-| `stm32_get_git_diff` | 读取未暂存差异 | 不 stage/reset/commit/fetch |
+| `stm32_get_git_diff` | 读取工作树差异；`cached=true` 时读取暂存区差异 | 不 stage/reset/commit/fetch |
 | `stm32_verify_test_integrity` | 校验固定测试哈希 | 不修改测试或锁 |
 | `stm32_run_keil_build` | 调用固定 Keil 包装脚本 | 不烧录、不访问串口、不执行任意命令 |
 | `stm32_create_patch_proposal` | 校验并登记 Agent 统一 diff | 只写入 `ProfileRoot/patch_proposals/<id>/`，不写工程源码 |
@@ -44,9 +44,9 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Configure-HiClawProxy.ps1
 
 ## 受控补丁流程
 
-Firmware 通过 `stm32_create_patch_proposal` 提交统一 diff。桥接层会调用 `patch_channel/New-MCUForgePatchProposal.ps1`，重新检查冻结策略、Git 基线、路径白名单、文件哈希和 `git apply --check`，只把不可覆盖的 `proposal.patch` 与 `proposal.json` 写到 Profile 的审计目录；工程源码和暂存区不会改变。
+Firmware 通过 `stm32_create_patch_proposal` 提交统一 diff。桥接层会调用 `patch_channel/New-MCUForgePatchProposal.ps1`，重新检查冻结策略、Git 基线、路径白名单、文件哈希和以项目相对目录执行的 `git apply --check`/`git apply --index --check`，只把不可覆盖的 `proposal.patch` 与 `proposal.json` 写到 Profile 的审计目录；工程源码和暂存区不会改变。
 
-默认模式下，人类在 Windows 上审阅这两个文件后，把 `proposal.json` 中的精确令牌复制到 Team 消息中，明确要求执行。启用 `-EnableAutonomousLocalMode` 后，用户在本次需求确认中写出 `AUTO_LOCAL`，Leader 可使用 `AUTO <proposal_id> <sha256>` 自动应用提案。两种模式都会再次检查当前 HEAD、源码哈希、策略哈希和补丁哈希，最后只执行 `git apply --index`，留下 `apply-record.json`。
+默认模式下，人类在 Windows 上审阅这两个文件后，把 `proposal.json` 中的精确令牌复制到 Team 消息中，明确要求执行。启用 `-EnableAutonomousLocalMode` 后，用户在本次需求确认中写出 `AUTO_LOCAL`，Leader 可使用 `AUTO <proposal_id> <sha256>` 自动应用提案。两种模式都会再次检查当前 HEAD、源码哈希、策略哈希和补丁哈希，并以真实 Git 根目录配合 `--directory=<project-relative-path>` 执行 `git apply --index`；应用后还会确认目标路径同时出现在暂存区、源码哈希确实变化且工作树没有未暂存差异。任何 `Skipped patch` 或空变更都会失败，不会写入成功记录。成功记录会留下 `apply-record.json`，其中包含 `staged_paths`、`unstaged_paths` 和应用后的源码哈希。
 
 提案登记会记录 `baseline_validation.mode`。如果历史只是因 Agent 文档/配置提交或仓库拆分而漂移，且 `patch-policy.json` 中记录的允许路径源码哈希全部一致，工具会按非源码历史漂移继续；如果源码哈希变化、策略 JSON 不完整或历史分叉无法证明源码未变，才返回 `TOOLING_BLOCKED`/策略错误并保持工程不变。不能修改旧提案或绕过检查。
 
@@ -55,7 +55,7 @@ Firmware 通过 `stm32_create_patch_proposal` 提交统一 diff。桥接层会�
 - 服务只接受明确注册的工具及固定参数；没有通用命令执行接口。
 - 工程路径由启动参数固定；所有读取都经过越界、目录、扩展名、大小和疑似密钥检查。
 - Keil 构建会更新可再生构建产物，因此不是纯只读，但它不能烧录或修改源码。
-- 补丁提案写入仅限 Profile 审计目录；应用补丁也只会进入 Git 暂存区。烧录、串口硬件测试和 Git push 仍未暴露，必须分别设计审批凭据和审计记录。
+- 补丁提案写入仅限 Profile 审计目录；应用补丁会同时物化到工作树并进入 Git 暂存区，但不会提交。烧录、串口硬件测试和 Git push 仍未暴露，必须分别设计审批凭据和审计记录。
 
 ## 验证
 

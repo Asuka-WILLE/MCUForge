@@ -297,22 +297,23 @@ function createServer(): McpServer {
     "stm32_get_git_diff",
     {
       title: "Get Scoped STM32 Git Diff",
-      description: "Return the current unstaged Git diff for the whole project or one validated project-relative path. This does not stage, reset, commit, fetch, or contact a remote.",
+      description: "Return the current Git diff for the whole project or one validated project-relative path. Set cached=true to inspect the staged index. This never stages, resets, commits, fetches or contacts a remote.",
       inputSchema: z.object({
-        path: z.string().max(500).optional().describe("Optional project-relative path to restrict the diff.")
+        path: z.string().max(500).optional().describe("Optional project-relative path to restrict the diff."),
+        cached: z.boolean().default(false).describe("Read the staged index diff when true; read the worktree diff when false.")
       }).strict(),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
-    async ({ path: requestedPath }) => {
+    async ({ path: requestedPath, cached }) => {
       try {
-        const args = ["diff", "--no-ext-diff", "--"];
+        const args = cached ? ["diff", "--cached", "--no-ext-diff", "--"] : ["diff", "--no-ext-diff", "--"];
         if (requestedPath) {
           const resolved = resolveProjectPath(requestedPath);
           args.push(path.relative(projectRoot, resolved));
         }
         const result = await git(args);
         if (result.exit_code !== 0) throw new Error(result.stderr || "Unable to read Git diff.");
-        return toolSuccess({ diff: result.stdout, truncated: result.truncated });
+        return toolSuccess({ diff: result.stdout, cached, truncated: result.truncated });
       } catch (error) {
         return toolError(error, "Use a project-relative path returned by stm32_list_project_files.");
       }
@@ -416,7 +417,7 @@ function createServer(): McpServer {
     "stm32_apply_approved_patch",
     {
       title: "Apply Reviewed STM32 Patch",
-      description: "Stage one previously recorded patch proposal with an exact human APPLY token, or with an AUTO token when the Windows bridge was explicitly started in Autonomous Local Mode. Revalidates policy, Git HEAD, source hashes and patch hash; never commits, pushes, flashes, opens a COM port, or accepts an arbitrary path.",
+      description: "Materialize one previously recorded patch proposal into the configured worktree and Git index with an exact human APPLY token, or with an AUTO token when the Windows bridge was explicitly started in Autonomous Local Mode. Revalidates policy, Git HEAD, source hashes and patch hash; rejects skipped or empty applications; never commits, pushes, flashes, opens a COM port, or accepts an arbitrary path.",
       inputSchema: z.object({
         proposal_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/),
         approval_token: z.string().regex(/^(?:APPLY|AUTO) [A-Za-z0-9][A-Za-z0-9._-]{2,63} [a-f0-9]{64}$/i).describe("Use APPLY <proposal_id> <sha256> after human review, or AUTO <proposal_id> <sha256> only when Autonomous Local Mode was explicitly enabled before the run.")

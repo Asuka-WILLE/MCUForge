@@ -19,10 +19,12 @@ try {
     if (!toolNames.includes(required)) throw new Error(`Required controlled patch tool is missing: ${required}`);
   }
   const snapshot = await client.callTool({ name: "stm32_get_project_snapshot", arguments: {} });
+  const cachedDiff = await client.callTool({ name: "stm32_get_git_diff", arguments: { cached: true } });
   const integrity = await client.callTool({ name: "stm32_verify_test_integrity", arguments: {} });
   console.log(JSON.stringify({
     tool_names: toolNames,
     snapshot: snapshot.structuredContent,
+    cached_diff: cachedDiff.structuredContent,
     integrity: integrity.structuredContent
   }, null, 2));
 } finally {

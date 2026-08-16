@@ -134,7 +134,21 @@ function Test-MCUForgePatchFile {
         }
     }
 
-    Invoke-MCUForgeGit -RepositoryRoot $RepositoryRoot -Arguments @("apply", "--check", "--whitespace=error", "--", $resolvedPatch) | Out-Null
+    $gitRoot = Get-MCUForgeRepositoryRoot -StartPath $RepositoryRoot
+    $projectRelative = [System.IO.Path]::GetRelativePath($gitRoot, [System.IO.Path]::GetFullPath($RepositoryRoot)).Replace("\", "/")
+    $directoryArguments = @()
+    if ($projectRelative -ne ".") {
+        $directoryArguments = @("--directory=$projectRelative")
+    }
+    Write-Verbose "MCUForge patch context repository='$gitRoot' project='$RepositoryRoot' relative='$projectRelative' directory='$($directoryArguments -join ',')'"
+    $checkArguments = @("apply", "--check", "--whitespace=error") + $directoryArguments + @("--", $resolvedPatch)
+    Invoke-MCUForgeGit -RepositoryRoot $gitRoot -Arguments $checkArguments | Out-Null
+    $indexCheckArguments = @("apply", "--index", "--check", "--verbose", "--whitespace=error") + $directoryArguments + @("--", $resolvedPatch)
+    $indexCheckOutput = @(Invoke-MCUForgeGit -RepositoryRoot $gitRoot -Arguments $indexCheckArguments 2>&1)
+    $skippedPatches = @($indexCheckOutput | Where-Object { $_.ToString() -match "(?i)\bSkipped patch\b" })
+    if ($skippedPatches.Count -gt 0) {
+        throw "Git would skip this patch during indexed application: $($skippedPatches -join ' ' )"
+    }
     return [pscustomobject]@{
         Path = $resolvedPatch
         Sha256 = (Get-FileHash -LiteralPath $resolvedPatch -Algorithm SHA256).Hash.ToLowerInvariant()
