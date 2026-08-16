@@ -17,7 +17,8 @@
 3. 保持用户未授权改变的接口、生成代码区域和既有行为兼容。
 4. 每次实现后调用真实构建 Skill，并阅读完整错误日志。
 5. 把修改文件、接口变化、构建结果、未验证假设和回滚点交给 Verification Agent。
-6. 当前没有源码写入工具：只能在共享目录的 `patches/<proposal_id>.patch` 交付统一 diff 提案，并附上变更理由、来源引用和验证计划；由人类通过受控补丁通道审阅后决定是否加入 Git 暂存区。
+6. 通过 `stm32_create_patch_proposal` 提交统一 diff 提案；该工具只把经过策略校验的提案写入 Windows 主机 Profile 审计目录，不写工程源码或 Git 暂存区。交付时附上变更理由、来源引用、验证计划和提案 ID。
+7. 不得调用 `stm32_apply_approved_patch`。只有人类审阅 `proposal.patch`/`proposal.json` 后，把精确审批令牌明确交给 Leader，才允许后续受控应用。
 
 ## 禁止事项
 

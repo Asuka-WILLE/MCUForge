@@ -2,7 +2,7 @@
 
 这份说明面向第一次拿到本仓库的人：如何在自己的 Windows 电脑上启动 MUC_AGENT 的 HiClaw 团队，并用它完成一次**可审计的 UM10550 开发板 Demo 开发任务**。
 
-它不是把“让 AI 随便改代码”包装成多 Agent。当前流程是：人提出需求 → Lead 拆解 → Requirement 冻结验收 → Research 查公开资料 → Firmware 交付受限补丁 → Verification 独立验证 → 人批准后才应用补丁、烧录或推送。
+它不是把“让 AI 随便改代码”包装成多 Agent。当前流程是：人提出需求 → Lead 拆解 → Requirement 冻结验收 → Research 查公开资料 → Firmware 交付受限补丁提案 → 人审阅并提供精确批准令牌 → 受控桥接器将补丁加入暂存区 → Verification 独立验证 → 人批准后才烧录或推送。
 
 ## 1. 你会得到什么
 
@@ -79,7 +79,7 @@ Set-Location ..\..\..
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\tool_bridge\stm32-mcp-server\Start-STM32ToolBridge.ps1
 ```
 
-它默认绑定本仓库的 UM10550 `firmware/` 与 `agent_profile/`，只给 Firmware 和 Verification 提供：工程快照、受限文件读取、Git diff、测试完整性检查和 Keil 构建。它没有任意 Shell、源码写入、烧录或串口工具。
+它默认绑定本仓库的 UM10550 `firmware/` 与 `agent_profile/`，给 Manager、Firmware 和 Verification 提供工程快照、受限文件读取、Git diff、测试完整性检查、Keil 构建，以及受控补丁提案/应用工具。提案只写 Profile 审计目录；应用只在精确人类批准令牌下执行 `git apply --index`。它没有任意 Shell、提交、推送、烧录或串口工具。
 
 ### 窗口 B：启动公开资料检索桥
 
@@ -149,7 +149,27 @@ Leader 不会因为收到这句话就开始改代码，而是先返回 `INTAKE_D
 
 ## 7. 审核并应用 Agent 给出的补丁
 
-Firmware Agent 只能给出 `.patch`，不会直接写你的 Windows 工程。拿到补丁后，先登记并校验：
+Firmware Agent 通过 MCP 把 `.patch` 登记为提案，不会直接写你的 Windows 工程。拿到 `proposal_id` 后，先在 Windows 上审阅 Profile 中的 `proposal.patch` 与 `proposal.json`；不再需要手工把 patch 文件复制到仓库：
+
+```text
+stm32_create_patch_proposal(proposal_id, patch)
+```
+
+审阅通过后，把 `proposal.json` 中的完整令牌复制到 Team 消息，并明确要求应用：
+
+```text
+APPLY <proposal_id> <proposal.json 中的 patch.sha256>
+```
+
+Leader/Verification 才能调用：
+
+```text
+stm32_apply_approved_patch(proposal_id, approval_token)
+```
+
+桥接器会再次校验策略、Git HEAD、源码哈希和补丁哈希，成功后只执行 `git apply --index`，并写入 `apply-record.json`。若基线或策略过期，工程保持不变，必须重新冻结 Profile。
+
+兼容旧版本或 MCP 不可用时，仍可使用本机脚本手工登记：
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\patch_channel\New-MCUForgePatchProposal.ps1 `

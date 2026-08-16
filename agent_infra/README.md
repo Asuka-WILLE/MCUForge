@@ -3,7 +3,7 @@
 这里是可复用的 Agent 运行时，不保存某个具体单片机项目的源码、固定测试或验收合同。
 
 - `hiclaw/`：Team 创建、角色加载和共享上下文发布。
-- `tool_bridge/`：受控 STM32/Research MCP 服务，不提供任意 Shell 或源码写入。
+- `tool_bridge/`：受控 STM32/Research MCP 服务，不提供任意 Shell；源码只能通过冻结策略和人类精确令牌进入 Git 暂存区。
 - `skills/`：Keil 构建、固定测试和证据审计入口。
 - `patch_channel/`：只登记和应用经过人工精确批准的统一 diff。
 

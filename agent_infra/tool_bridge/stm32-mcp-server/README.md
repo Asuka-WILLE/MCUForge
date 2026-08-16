@@ -12,6 +12,8 @@
 | `stm32_get_git_diff` | 读取未暂存差异 | 不 stage/reset/commit/fetch |
 | `stm32_verify_test_integrity` | 校验固定测试哈希 | 不修改测试或锁 |
 | `stm32_run_keil_build` | 调用固定 Keil 包装脚本 | 不烧录、不访问串口、不执行任意命令 |
+| `stm32_create_patch_proposal` | 校验并登记 Agent 统一 diff | 只写入 `ProfileRoot/patch_proposals/<id>/`，不写工程源码 |
+| `stm32_apply_approved_patch` | 复核后将已批准提案加入 Git 暂存区 | 必须提供人类复制的精确令牌；不提交、推送、烧录或操作 COM |
 
 ## 本机启动
 
@@ -26,7 +28,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Start-STM32ToolBridge.ps1
 
 健康检查：`http://127.0.0.1:8765/health`。MCP 端点为 `http://host.docker.internal:8765/mcp`，必须通过 Bearer 令牌认证。
 
-桥接服务启动后，把它注册到 HiClaw 的 Higress MCP Proxy，并只授权 Firmware/Verification Worker：
+桥接服务启动后，把它注册到 HiClaw 的 Higress MCP Proxy，并只授权 Manager、Firmware、Verification Worker：
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\Configure-HiClawProxy.ps1
@@ -34,12 +36,20 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Configure-HiClawProxy.ps1
 
 该脚本从现有 `C:\Users\hz_wu\hiclaw-manager.env` 安全读取控制台登录信息，不打印密码、Consumer Key 或桥接令牌；授权列表采用完整替换并固定为 Manager、Firmware、Verification 三个 Consumer。为兼容当前 Higress 镜像不注入上游自定义头的行为，脚本只把这些 Consumer Key 的 SHA-256 写入 `%LOCALAPPDATA%\MCUForge\stm32-tool-bridge-consumer-hashes.json`，桥接服务不会保存明文 Key。
 
+## 受控补丁流程
+
+Firmware 通过 `stm32_create_patch_proposal` 提交统一 diff。桥接层会调用 `patch_channel/New-MCUForgePatchProposal.ps1`，重新检查冻结策略、Git 基线、路径白名单、文件哈希和 `git apply --check`，只把不可覆盖的 `proposal.patch` 与 `proposal.json` 写到 Profile 的审计目录；工程源码和暂存区不会改变。
+
+人类在 Windows 上审阅这两个文件后，把 `proposal.json` 中的精确令牌复制到 Team 消息中，明确要求执行。随后才允许调用 `stm32_apply_approved_patch`。该工具只接受 `proposal_id` 和精确 `APPLY <proposal_id> <sha256>` 令牌，并再次检查当前 HEAD、源码哈希、策略哈希和补丁哈希，最后只执行 `git apply --index`，留下 `apply-record.json`。
+
+如果基线或策略已经过期，工具会返回 `TOOLING_BLOCKED`/策略错误并保持工程不变；必须由人重新冻结 Profile，不能修改旧提案或绕过检查。
+
 ## 安全边界
 
 - 服务只接受明确注册的工具及固定参数；没有通用命令执行接口。
 - 工程路径由启动参数固定；所有读取都经过越界、目录、扩展名、大小和疑似密钥检查。
 - Keil 构建会更新可再生构建产物，因此不是纯只读，但它不能烧录或修改源码。
-- 烧录、串口硬件测试、Git push 和源码写入仍然没有暴露；后续必须分别设计审批凭据和审计记录。
+- 补丁提案写入仅限 Profile 审计目录；应用补丁也只会进入 Git 暂存区。烧录、串口硬件测试和 Git push 仍未暴露，必须分别设计审批凭据和审计记录。
 
 ## 验证
 

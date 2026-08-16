@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -102,6 +103,36 @@ function resolveAgentPath(relativePath: string): string {
     throw new Error("Tool script path escaped the configured agent runtime root.");
   }
   return resolved;
+}
+
+function resolveProposalDirectory(proposalId: string): string {
+  const proposalRoot = path.resolve(profileRoot, "patch_proposals");
+  const resolved = path.resolve(proposalRoot, proposalId);
+  const relative = path.relative(proposalRoot, resolved);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Patch proposal path escaped the configured profile root.");
+  }
+  return resolved;
+}
+
+function parseJsonResult(stdout: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(stdout);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("Patch-channel script did not return a JSON object.");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+async function withTemporaryPatch<T>(patchText: string, callback: (patchFile: string) => Promise<T>): Promise<T> {
+  const temporaryDirectory = await fs.mkdtemp(path.join(tmpdir(), "mcuforge-patch-"));
+  const patchFile = path.join(temporaryDirectory, "proposal.patch");
+  try {
+    await fs.writeFile(patchFile, patchText, "utf8");
+    return await callback(patchFile);
+  } finally {
+    try { await fs.unlink(patchFile); } catch { /* best-effort cleanup of one generated file */ }
+    try { await fs.rm(temporaryDirectory, { force: true }); } catch { /* leave no project files behind */ }
+  }
 }
 
 async function runCommand(command: string, args: string[], timeoutMs: number): Promise<CommandResult> {
@@ -334,6 +365,94 @@ function createServer(): McpServer {
         return toolSuccess(output);
       } catch (error) {
         return toolError(error, "Verify Keil uVision and the UM10550 project are installed at the allowlisted locations.");
+      }
+    }
+  );
+
+  server.registerTool(
+    "stm32_create_patch_proposal",
+    {
+      title: "Create Audited STM32 Patch Proposal",
+      description: "Validate an Agent-produced unified diff against the frozen patch policy and record it under the host profile. This never writes project source, stages files, commits, pushes, flashes, or opens a COM port.",
+      inputSchema: z.object({
+        proposal_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/).describe("Stable proposal identifier; letters, digits, dot, underscore and hyphen only."),
+        patch: z.string().min(1).max(64 * 1024).describe("UTF-8 unified diff text produced by Firmware Agent.")
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    },
+    async ({ proposal_id, patch }) => {
+      try {
+        const script = resolveAgentPath("patch_channel/New-MCUForgePatchProposal.ps1");
+        const policy = path.join(profileRoot, "patch-policy.json");
+        const result = await withTemporaryPatch(patch, async patchFile => await runCommand("pwsh.exe", [
+          "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
+          "-PatchFile", patchFile,
+          "-ProposalId", proposal_id,
+          "-ProjectRoot", projectRoot,
+          "-ProfileRoot", profileRoot,
+          "-PolicyFile", policy
+        ], 30_000));
+        if (result.exit_code !== 0) {
+          return toolError(result.stdout || result.stderr || "Patch proposal validation failed.", "Keep the Windows worktree unchanged, freeze a current patch policy if the baseline is stale, then submit a new proposal.");
+        }
+        const proposal = parseJsonResult(result.stdout);
+        return toolSuccess({
+          operation: "create_patch_proposal",
+          proposal_id,
+          status: proposal.status ?? "pending_human_review",
+          proposal_directory: path.relative(profileRoot, resolveProposalDirectory(proposal_id)).replaceAll("\\", "/"),
+          patch_sha256: proposal.patch_sha256 ?? null,
+          changed_paths: proposal.changed_paths ?? [],
+          next_action: "A human must inspect proposal.patch and proposal.json on Windows before supplying the exact approval token to stm32_apply_approved_patch."
+        });
+      } catch (error) {
+        return toolError(error, "Verify the frozen patch policy and submit a valid unified diff without changing the project worktree.");
+      }
+    }
+  );
+
+  server.registerTool(
+    "stm32_apply_approved_patch",
+    {
+      title: "Apply Human-Approved STM32 Patch",
+      description: "Stage one previously recorded patch proposal only when the caller supplies the exact human approval token. Revalidates policy, Git HEAD, source hashes and patch hash; never commits, pushes, flashes, opens a COM port, or accepts an arbitrary path.",
+      inputSchema: z.object({
+        proposal_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/),
+        approval_token: z.string().regex(/^APPLY [A-Za-z0-9][A-Za-z0-9._-]{2,63} [a-f0-9]{64}$/i).describe("Exact token copied by a human from proposal.json, for example APPLY FS-001-001 <sha256>.")
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    },
+    async ({ proposal_id, approval_token }) => {
+      try {
+        const proposalDirectory = resolveProposalDirectory(proposal_id);
+        const script = resolveAgentPath("patch_channel/Apply-MCUForgeApprovedPatch.ps1");
+        const policy = path.join(profileRoot, "patch-policy.json");
+        const result = await runCommand("pwsh.exe", [
+          "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
+          "-ProposalDirectory", proposalDirectory,
+          "-ApprovalToken", approval_token,
+          "-ProjectRoot", projectRoot,
+          "-ProfileRoot", profileRoot,
+          "-PolicyFile", policy
+        ], 30_000);
+        if (result.exit_code !== 0) {
+          return toolError(result.stdout || result.stderr || "Approved patch was not applied.", "No project change was authorized. Inspect the proposal, approval token, Git status and policy error, then retry only after the human resolves it.");
+        }
+        const applied = parseJsonResult(result.stdout);
+        return toolSuccess({
+          operation: "apply_approved_patch",
+          proposal_id,
+          status: applied.status ?? "applied_to_git_index",
+          proposal_directory: path.relative(profileRoot, proposalDirectory).replaceAll("\\", "/"),
+          patch_sha256: applied.patch_sha256 ?? null,
+          changed_paths: applied.changed_paths ?? [],
+          git_head_before_apply: applied.git_head_before_apply ?? null,
+          next_required_actions: applied.next_required_actions ?? [
+            "Inspect git diff --cached, run fixed-test integrity and a real Keil build, then create a reviewed normal Git commit."
+          ]
+        });
+      } catch (error) {
+        return toolError(error, "Do not bypass the approval gate; inspect the proposal and retry with the exact human token.");
       }
     }
   );
