@@ -1,0 +1,68 @@
+contract:
+  run_id: MCUFORGE-FS-002
+  title: MCUForge Demo PC 控制断链、急停与恢复
+  version: 1.1.0
+  status: frozen_for_research_and_implementation
+  firmware_baseline_commit: efba900861e0fca3ebd6299163faebb38b6d25d0
+  orchestration_baseline_commit: efba900861e0fca3ebd6299163faebb38b6d25d0
+  target: VCW
+  device_boundary: STM32H723 开发板、TFT、USB CDC、电脑虚拟手柄和 PC 遥测；固件根目录为 demos/vcw-board-demo/firmware
+
+goal:
+  user_intent: 电脑控制帧中断或发出急停时，Demo 虚拟输出必须安全清零；恢复必须防止瞬间重新运动。
+  non_goals:
+    - 不控制车辆、真实轮毂电机或 RS485 外部执行器。
+    - 不改变生产 SBUS、RS485 或原有车控逻辑。
+    - 不改变 PC 帧格式、固定测试定义或测试完整性锁。
+    - 不在未获人工批准时烧录、操作 COM 口或推送远端。
+
+acceptance:
+  CTRL-001:
+    purpose: 保持既有 PC 虚拟手柄混控能力不回归。
+    expected: 驱动阶段 throttle=400、steering=100 时，left_cmd=500、right_cmd=300、cmd_valid=1。
+  FS-001:
+    purpose: 验证控制帧中断保护。
+    expected: 驱动后停止发送；进入 link_loss 阶段 170 ms 后的全部采样中，left_cmd=0、right_cmd=0、cmd_valid=0、state=FAILSAFE。
+  ESTOP-001:
+    purpose: 验证急停请求的立即锁定。
+    expected: 急停阶段 80 ms 后的全部采样中，left_cmd=0、right_cmd=0、cmd_valid=0、state=ESTOP。
+  REC-001:
+    purpose: 验证 FAILSAFE 的受控恢复。
+    expected:
+      - 第二帧中位帧后仍为 FAILSAFE，left_cmd=0，right_cmd=0，pc_recovery_neutral_count=2。
+      - 第三帧中位帧后状态只能为 RUN 或 DISABLED，且输出仍为零。
+      - 随后的 throttle=300、steering=0 帧必须恢复为 left_cmd=300、right_cmd=300、state=RUN。
+
+implementation_scope:
+  allowed_paths:
+    - Core/Src/mcuforge_demo.c
+    - Core/Inc/mcuforge_demo.h
+  requires_human_approval_before_expansion:
+    - Core/Src/main.c
+    - USB_DEVICE/App/usbd_cdc_if.c
+    - PC_Tools/mcuforge_protocol.py
+    - PC_Tools/mcuforge_test_runner.py
+  immutable_paths:
+    - PC_Tools/mcuforge_testcases/CTRL-001.json
+    - PC_Tools/mcuforge_testcases/FS-001.json
+    - PC_Tools/mcuforge_testcases/ESTOP-001.json
+    - PC_Tools/mcuforge_testcases/REC-001.json
+    - agent_profile/testcase-lock.json
+
+verification_order:
+  - 校验冻结合同与固定测试哈希。
+  - 审阅 Git diff 是否只在已授权范围内。
+  - 运行 Python 静态检查和真实 Keil 全量构建。
+  - 显示 HEX/AXF 哈希，暂停等待人工烧录批准。
+  - 获批后才在指定 COM 口运行固定测试并保存原始遥测与 TFT 证据。
+
+handoff_requirements:
+  required_fields:
+    - run_id
+    - publish_manifest_sha256
+    - contract_version
+    - input_files
+    - conclusion
+    - unresolved_questions
+    - next_role
+    - prohibited_actions_not_taken

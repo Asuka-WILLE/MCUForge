@@ -1,6 +1,6 @@
 param(
-    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\..\demos\um10550-board-demo\firmware")),
-    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\..\demos\um10550-board-demo\agent_profile"))
+    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\..\demos\vcw-board-demo\firmware")),
+    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\..\demos\vcw-board-demo\agent_profile"))
 )
 
 $ErrorActionPreference = "Stop"

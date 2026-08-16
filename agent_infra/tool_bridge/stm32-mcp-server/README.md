@@ -30,7 +30,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Start-STM32ToolBridge.ps1
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\Start-STM32ToolBridge.ps1 -EnableAutonomousLocalMode
 ```
 
-默认绑定 `demos\um10550-board-demo\firmware` 与其 `agent_profile`；其他工程必须在启动时显式传入 `-ProjectRoot`、`-ProfileRoot`。首次启动会在 `%LOCALAPPDATA%\MCUForge\stm32-tool-bridge.token` 生成 256 位随机令牌。令牌不写入仓库，也不应复制到聊天记录；Higress 代理保存上游认证信息，Worker 只持有自己的网关 Consumer Key。
+默认绑定 `demos\vcw-board-demo\firmware` 与其 `agent_profile`；其他工程必须在启动时显式传入 `-ProjectRoot`、`-ProfileRoot`。首次启动会在 `%LOCALAPPDATA%\MCUForge\stm32-tool-bridge.token` 生成 256 位随机令牌。令牌不写入仓库，也不应复制到聊天记录；Higress 代理保存上游认证信息，Worker 只持有自己的网关 Consumer Key。
 
 健康检查：`http://127.0.0.1:8765/health`。MCP 端点为 `http://host.docker.internal:8765/mcp`，必须通过 Bearer 令牌认证。
 

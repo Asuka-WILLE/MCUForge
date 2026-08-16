@@ -4,7 +4,7 @@
 
 ## 固定边界
 
-- 当前 UM10550 示例冻结任务：`MCUFORGE-FS-002`。
+- 当前 VCW 示例冻结任务：`MCUFORGE-FS-002`。
 - 只允许修改既有 `Core/Src/mcuforge_demo.c` 与 `Core/Inc/mcuforge_demo.h`。
 - 禁止新增、删除、重命名、复制、二进制补丁，以及任何固定测试、合同或证据审计脚本的变更。
 - `patch-policy.json` 是本通道唯一权威策略；共享 Markdown 只能作为它的中文镜像，不能单独修改。策略中的 `baseline_source_hashes` 记录允许修改文件的冻结哈希，`allow_non_source_history_drift=true` 时，Agent 基础设施提交、仓库拆分或其他非固件历史漂移只要这些源码哈希仍完全一致即可继续，不会反复阻塞。
@@ -26,7 +26,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\patch_channel\New-MCUF
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File agent_infra\patch_channel\Apply-MCUForgeApprovedPatch.ps1 `
-  -ProposalDirectory demos\um10550-board-demo\agent_profile\patch_proposals\FS-001-001 `
+  -ProposalDirectory demos\vcw-board-demo\agent_profile\patch_proposals\FS-001-001 `
   -ApprovalToken "APPLY FS-001-001 <proposal.json 内 patch.sha256>"
 ```
 

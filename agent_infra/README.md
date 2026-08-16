@@ -14,4 +14,4 @@
 - `ProjectRoot`：要读取、构建或验证的固件工程；
 - `ProfileRoot`：该工程的冻结合同、角色、来源、测试哈希和补丁策略。
 
-当前内置 Profile 是 [`../demos/um10550-board-demo/`](../demos/um10550-board-demo/README.md)。新项目只需要提供同类 Profile；手册或例程缺失时，Research Agent 会停止并要求用户提供资料，而不会捏造依据。
+当前内置 Profile 是 [`../demos/vcw-board-demo/`](../demos/vcw-board-demo/README.md)。新项目只需要提供同类 Profile；手册或例程缺失时，Research Agent 会停止并要求用户提供资料，而不会捏造依据。

@@ -1,6 +1,6 @@
 param(
-    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\firmware")),
-    [string]$PolicyFile = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\agent_profile\patch-policy.json"))
+    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\vcw-board-demo\firmware")),
+    [string]$PolicyFile = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\vcw-board-demo\agent_profile\patch-policy.json"))
 )
 
 $ErrorActionPreference = "Stop"

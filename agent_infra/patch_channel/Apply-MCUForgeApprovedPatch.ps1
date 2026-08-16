@@ -1,9 +1,9 @@
 param(
     [Parameter(Mandatory)][ValidateScript({ Test-Path -LiteralPath $_ -PathType Container })][string]$ProposalDirectory,
     [Parameter(Mandatory)][string]$ApprovalToken,
-    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\firmware")),
-    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\agent_profile")),
-    [string]$PolicyFile = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\agent_profile\patch-policy.json"))
+    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\vcw-board-demo\firmware")),
+    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\vcw-board-demo\agent_profile")),
+    [string]$PolicyFile = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\vcw-board-demo\agent_profile\patch-policy.json"))
 )
 
 $ErrorActionPreference = "Stop"

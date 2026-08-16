@@ -1,17 +1,17 @@
 param(
     [switch]$Rebuild,
     [string]$KeilPath = "C:\Users\hz_wu\AppData\Local\Keil_v5\UV4\UV4.exe",
-    [string]$Target = "UM10550",
-    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\..\demos\um10550-board-demo\firmware"))
+    [string]$Target = "VCW",
+    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\..\demos\vcw-board-demo\firmware"))
 )
 
 $ErrorActionPreference = "Stop"
 $projectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
-$projectPath = Join-Path $projectRoot "MDK-ARM\UM10550.uvprojx"
-$buildDir = Join-Path $projectRoot "MDK-ARM\UM10550"
-$logPath = Join-Path $buildDir "UM10550.build_log.htm"
-$hexPath = Join-Path $buildDir "UM10550.hex"
-$axfPath = Join-Path $buildDir "UM10550.axf"
+$projectPath = Join-Path $projectRoot "MDK-ARM\VCW.uvprojx"
+$buildDir = Join-Path $projectRoot "MDK-ARM\VCW"
+$logPath = Join-Path $buildDir "VCW.build_log.htm"
+$hexPath = Join-Path $buildDir "VCW.hex"
+$axfPath = Join-Path $buildDir "VCW.axf"
 
 if (-not (Test-Path -LiteralPath $KeilPath -PathType Leaf)) {
     throw "Keil executable not found: $KeilPath"

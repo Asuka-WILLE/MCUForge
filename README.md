@@ -21,7 +21,7 @@ MUC_AGENT/
 │   ├── skills/
 │   └── patch_channel/
 └── demos/
-    └── um10550-board-demo/       # 一个可运行的示例，不是平台本体
+    └── vcw-board-demo/       # 一个可运行的示例，不是平台本体
         ├── firmware/             # 完整 STM32/Keil 工程、PC 控制工具、固定测试和证据
         └── agent_profile/        # 该示例的合同、角色、测试哈希与补丁策略
 ```
@@ -36,8 +36,14 @@ MUC_AGENT/
 4. 受控补丁通道：默认由人类审阅并输入精确令牌后，Leader 才能把 Firmware 的统一 diff 加入 Git 暂存区；可选 `AUTO_LOCAL` 模式允许一次确认后自动完成本地应用、构建和固定测试。
 5. 实时进度协议：每个角色在接单、关键工具调用前后、等待、阻塞和完成时发布 `[PROGRESS]`，Leader 每 5 分钟发送一次心跳。
 
-## 从 UM10550 示例开始
+## 从 VCW 示例开始
 
-示例入口在 [demos/um10550-board-demo](demos/um10550-board-demo/README.md)。它使用开发板、TFT、USB CDC 和电脑虚拟手柄，不需要车、遥控器或电机。完整启动顺序在 [HiClaw 完整上手手册](agent_infra/hiclaw/README.md#5-首次启动按顺序执行)：先启动两个本机 Bridge，再注册 MCP、创建 Team 并验证五个角色。
+示例入口在 [demos/vcw-board-demo](demos/vcw-board-demo/README.md)。它使用开发板、TFT、USB CDC 和电脑虚拟手柄，不需要车、遥控器或电机。完整启动顺序在 [HiClaw 完整上手手册](agent_infra/hiclaw/README.md#5-首次启动按顺序执行)：先启动两个本机 Bridge，再注册 MCP、创建 Team 并验证五个角色。
 
 运行 Team 或桥接服务不会写入固件、不会烧录、不会打开 COM 口，也不会推送远端；这些动作始终需要单独的人工批准。
+
+## License
+
+除另有声明的文件或目录外，本仓库的原创 MCUForge 代码及已获相应著作权人授权的 VCW Demo 内容，均按 [Apache License 2.0](LICENSE) 发布。VCW Demo 的原有著作权声明应继续保留。
+
+仓库中包含 Arm CMSIS、STM32 HAL 和 STM32 USB Device Library 等第三方组件；它们继续适用各自目录内的原许可证，根目录 Apache-2.0 不会覆盖这些条款。完整清单见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)，署名说明见 [NOTICE.md](NOTICE.md)。

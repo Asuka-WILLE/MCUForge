@@ -2,7 +2,7 @@ param(
     [string]$Controller = "hiclaw-controller",
     [string]$Model = "deepseek-v4-pro",
     [string]$TeamName = "mcuforge",
-    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\agent_profile")),
+    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\vcw-board-demo\agent_profile")),
     [switch]$EnableToolBridge,
     [switch]$EnableResearchBridge,
     [switch]$EnableWideAgentAccess,

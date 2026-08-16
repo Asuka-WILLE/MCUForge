@@ -1,6 +1,6 @@
 param(
-    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\demos\um10550-board-demo\firmware")),
-    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\demos\um10550-board-demo\agent_profile")),
+    [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\demos\vcw-board-demo\firmware")),
+    [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\demos\vcw-board-demo\agent_profile")),
     [string]$AgentRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..")),
     [int]$Port = 8765,
     [switch]$EnableAutonomousLocalMode
@@ -40,8 +40,8 @@ foreach ($requiredDirectory in @($env:MCUFORGE_PROJECT_ROOT, $env:MCUFORGE_PROFI
         throw "Required MCUForge directory does not exist: $requiredDirectory"
     }
 }
-if (-not (Test-Path -LiteralPath (Join-Path $env:MCUFORGE_PROJECT_ROOT "MDK-ARM\UM10550.uvprojx") -PathType Leaf)) {
-    throw "ProjectRoot is not a UM10550 firmware project: $env:MCUFORGE_PROJECT_ROOT"
+if (-not (Test-Path -LiteralPath (Join-Path $env:MCUFORGE_PROJECT_ROOT "MDK-ARM\VCW.uvprojx") -PathType Leaf)) {
+    throw "ProjectRoot is not a VCW firmware project: $env:MCUFORGE_PROJECT_ROOT"
 }
 
 Push-Location $PSScriptRoot

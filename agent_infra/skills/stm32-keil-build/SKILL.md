@@ -1,7 +1,7 @@
 ---
 name: stm32-keil-build
 description: Perform and audit a real Keil uVision build for this STM32 project, including exit code, error and warning counts, program size, and SHA-256 hashes. Use whenever an Agent changes firmware, the Keil project, USB code, or claims the STM32 build is ready.
-compatibility: PowerShell 7, Keil uVision 5, UM10550 target
+compatibility: PowerShell 7, Keil uVision 5, VCW target
 ---
 
 # STM32 Keil Build

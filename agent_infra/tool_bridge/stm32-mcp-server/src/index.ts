@@ -43,10 +43,10 @@ interface ToolErrorShape {
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(moduleDirectory, "../../../..");
 const projectRoot = path.resolve(
-  process.env.MCUFORGE_PROJECT_ROOT ?? path.join(repositoryRoot, "demos/um10550-board-demo/firmware")
+  process.env.MCUFORGE_PROJECT_ROOT ?? path.join(repositoryRoot, "demos/vcw-board-demo/firmware")
 );
 const agentRoot = path.resolve(process.env.MCUFORGE_AGENT_ROOT ?? path.join(repositoryRoot, "agent_infra"));
-const profileRoot = path.resolve(process.env.MCUFORGE_PROFILE_ROOT ?? path.join(repositoryRoot, "demos/um10550-board-demo/agent_profile"));
+const profileRoot = path.resolve(process.env.MCUFORGE_PROFILE_ROOT ?? path.join(repositoryRoot, "demos/vcw-board-demo/agent_profile"));
 const bridgeToken = process.env.MCUFORGE_BRIDGE_TOKEN ?? "";
 const consumerHashPath = process.env.MCUFORGE_CONSUMER_HASH_PATH ?? "";
 const autonomousLocalMode = /^(1|true)$/i.test(process.env.MCUFORGE_AUTONOMOUS_LOCAL ?? "");
@@ -366,7 +366,7 @@ function createServer(): McpServer {
         }
         return toolSuccess(output);
       } catch (error) {
-        return toolError(error, "Verify Keil uVision and the UM10550 project are installed at the allowlisted locations.");
+        return toolError(error, "Verify Keil uVision and the VCW project are installed at the allowlisted locations.");
       }
     }
   );

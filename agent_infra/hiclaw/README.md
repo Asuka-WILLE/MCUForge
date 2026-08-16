@@ -1,6 +1,6 @@
 # MUC_AGENT HiClaw 使用说明
 
-这份说明面向第一次拿到本仓库的人：如何在自己的 Windows 电脑上启动 MUC_AGENT 的 HiClaw 团队，并用它完成一次**可审计的 UM10550 开发板 Demo 开发任务**。
+这份说明面向第一次拿到本仓库的人：如何在自己的 Windows 电脑上启动 MUC_AGENT 的 HiClaw 团队，并用它完成一次**可审计的 VCW 开发板 Demo 开发任务**。
 
 它不是把“让 AI 随便改代码”包装成多 Agent。当前流程是：人提出需求 → Lead 拆解 → Requirement 冻结验收 → Research 查公开资料 → Firmware 交付受限补丁提案 → 人审阅并提供精确批准令牌 → 受控桥接器将补丁加入暂存区 → Verification 独立验证 → 人批准后才烧录或推送。协作模式下，所有角色会在 Team 房间发送结构化 `[PROGRESS]`，Leader 每 5 分钟心跳一次；这保证的是“阶段事件可见”，不是每秒输出。
 
@@ -20,13 +20,13 @@
 
 ## 2. 当前可复现范围
 
-本仓库开箱即用的实例是 [UM10550 开发板安全控制 Demo](../../demos/um10550-board-demo/README.md)：STM32H723、TFT、USB CDC、电脑虚拟手柄；不需要车辆、遥控器或电机。
+本仓库开箱即用的实例是 [VCW 开发板安全控制 Demo](../../demos/vcw-board-demo/README.md)：STM32H723、TFT、USB CDC、电脑虚拟手柄；不需要车辆、遥控器或电机。
 
 冻结任务为 `MCUFORGE-FS-002`，用于演示电脑控制断链、急停和受控恢复。默认补丁白名单只允许修改：
 
 ```text
-demos/um10550-board-demo/firmware/Core/Src/mcuforge_demo.c
-demos/um10550-board-demo/firmware/Core/Inc/mcuforge_demo.h
+demos/vcw-board-demo/firmware/Core/Src/mcuforge_demo.c
+demos/vcw-board-demo/firmware/Core/Inc/mcuforge_demo.h
 ```
 
 这是刻意的安全设计。超出这两个文件、烧录、打开 COM 口和 Git 推送，均必须由人明确批准。
@@ -79,7 +79,7 @@ Set-Location ..\..\..
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\tool_bridge\stm32-mcp-server\Start-STM32ToolBridge.ps1
 ```
 
-它默认绑定本仓库的 UM10550 `firmware/` 与 `agent_profile/`。基础模式给 Manager、Leader、Firmware 和 Verification 提供工程快照、受限文件读取、Git diff、测试完整性检查、Keil 构建，以及受控补丁提案/应用工具；协作模式（`-EnableWideAgentAccess`）还给 Requirement 和 Research 同一套工程读取工具，并让 Leader、Requirement、Research 使用公开资料检索桥。提案只写 Profile 审计目录；应用在普通模式需要精确人类批准令牌，在本地自动模式需要本次确认中的 `AUTO_LOCAL` 和 `AUTO` 令牌。它没有任意 Shell、提交、推送、烧录或串口工具。
+它默认绑定本仓库的 VCW `firmware/` 与 `agent_profile/`。基础模式给 Manager、Leader、Firmware 和 Verification 提供工程快照、受限文件读取、Git diff、测试完整性检查、Keil 构建，以及受控补丁提案/应用工具；协作模式（`-EnableWideAgentAccess`）还给 Requirement 和 Research 同一套工程读取工具，并让 Leader、Requirement、Research 使用公开资料检索桥。提案只写 Profile 审计目录；应用在普通模式需要精确人类批准令牌，在本地自动模式需要本次确认中的 `AUTO_LOCAL` 和 `AUTO` 令牌。它没有任意 Shell、提交、推送、烧录或串口工具。
 
 如果希望一次确认后自动完成本地补丁应用、构建和固定测试，启动时加上 `-EnableAutonomousLocalMode`：
 
@@ -215,7 +215,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\patch_channel\New-MC
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\patch_channel\Apply-MCUForgeApprovedPatch.ps1 `
-  -ProposalDirectory .\demos\um10550-board-demo\agent_profile\patch_proposals\FS-002-001 `
+  -ProposalDirectory .\demos\vcw-board-demo\agent_profile\patch_proposals\FS-002-001 `
   -ApprovalToken 'APPLY FS-002-001 <proposal.json 中的 patch.sha256>'
 ```
 
@@ -264,7 +264,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\hiclaw\Install-MCUFo
 
 ## 10. 给新工程使用者的边界
 
-本仓库目前已经把运行时与 Demo 分开，但**只为 UM10550 Demo 提供了完整冻结 Profile 和已验证 MCP 配置**。新工程复用时，以下内容必须由项目负责人重新建立，不能沿用 Demo 的结论：
+本仓库目前已经把运行时与 Demo 分开，但**只为 VCW Demo 提供了完整冻结 Profile 和已验证 MCP 配置**。新工程复用时，以下内容必须由项目负责人重新建立，不能沿用 Demo 的结论：
 
 1. 项目事实源、构建入口、芯片与工具链。
 2. 需求合同、允许修改范围、不可变测试与证据标准。
