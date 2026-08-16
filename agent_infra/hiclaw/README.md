@@ -79,7 +79,7 @@ Set-Location ..\..\..
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\tool_bridge\stm32-mcp-server\Start-STM32ToolBridge.ps1
 ```
 
-它默认绑定本仓库的 UM10550 `firmware/` 与 `agent_profile/`，给 Manager、Firmware 和 Verification 提供工程快照、受限文件读取、Git diff、测试完整性检查、Keil 构建，以及受控补丁提案/应用工具。提案只写 Profile 审计目录；应用只在精确人类批准令牌下执行 `git apply --index`。它没有任意 Shell、提交、推送、烧录或串口工具。
+它默认绑定本仓库的 UM10550 `firmware/` 与 `agent_profile/`，给 Manager、Leader、Firmware 和 Verification 提供工程快照、受限文件读取、Git diff、测试完整性检查、Keil 构建，以及受控补丁提案/应用工具。提案只写 Profile 审计目录；应用只在精确人类批准令牌下执行 `git apply --index`。它没有任意 Shell、提交、推送、烧录或串口工具。
 
 ### 窗口 B：启动公开资料检索桥
 
@@ -161,7 +161,7 @@ stm32_create_patch_proposal(proposal_id, patch)
 APPLY <proposal_id> <proposal.json 中的 patch.sha256>
 ```
 
-Leader/Verification 才能调用：
+只有 Leader 才能调用应用工具；Verification 只负责审阅和验证：
 
 ```text
 stm32_apply_approved_patch(proposal_id, approval_token)

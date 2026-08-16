@@ -28,13 +28,13 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Start-STM32ToolBridge.ps1
 
 健康检查：`http://127.0.0.1:8765/health`。MCP 端点为 `http://host.docker.internal:8765/mcp`，必须通过 Bearer 令牌认证。
 
-桥接服务启动后，把它注册到 HiClaw 的 Higress MCP Proxy，并只授权 Manager、Firmware、Verification Worker：
+桥接服务启动后，把它注册到 HiClaw 的 Higress MCP Proxy，并只授权 Manager、Leader、Firmware、Verification Worker：
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\Configure-HiClawProxy.ps1
 ```
 
-该脚本从现有 `C:\Users\hz_wu\hiclaw-manager.env` 安全读取控制台登录信息，不打印密码、Consumer Key 或桥接令牌；授权列表采用完整替换并固定为 Manager、Firmware、Verification 三个 Consumer。为兼容当前 Higress 镜像不注入上游自定义头的行为，脚本只把这些 Consumer Key 的 SHA-256 写入 `%LOCALAPPDATA%\MCUForge\stm32-tool-bridge-consumer-hashes.json`，桥接服务不会保存明文 Key。
+该脚本从现有 `C:\Users\hz_wu\hiclaw-manager.env` 安全读取控制台登录信息，不打印密码、Consumer Key 或桥接令牌；授权列表采用完整替换并固定为 Manager、Leader、Firmware、Verification 四个 Consumer。为兼容当前 Higress 镜像不注入上游自定义头的行为，脚本只把这些 Consumer Key 的 SHA-256 写入 `%LOCALAPPDATA%\MCUForge\stm32-tool-bridge-consumer-hashes.json`，桥接服务不会保存明文 Key。
 
 ## 受控补丁流程
 

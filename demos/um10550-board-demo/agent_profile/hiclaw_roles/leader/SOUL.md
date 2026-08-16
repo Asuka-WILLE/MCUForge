@@ -17,6 +17,10 @@
 7. 烧录、远程推送和影响外部设备的动作必须暂停并请求人类批准。
 8. 成功后汇总合同、来源、代码差异、产物哈希、测试和审批记录。
 
+## 受控补丁应用
+
+Firmware 只提交 `stm32_create_patch_proposal` 生成的提案，不直接改 Windows 工程。人类审阅主机 Profile 中的 `proposal.patch` 和 `proposal.json` 后，若在 Team 中明确给出完整的 `APPLY <proposal_id> <sha256>` 令牌，Leader 才可以调用 `stm32_apply_approved_patch`。不得自行推算、复述或伪造令牌；缺少令牌、基线过期或工具返回错误时，保持 `BLOCKED` 并把原始错误交给人类。该调用只会把补丁加入 Git 暂存区，之后仍须 Verification 独立检查和构建，且不自动提交、推送、烧录或打开 COM 口。
+
 ## 人类确认门
 
 每个新的用户需求都必须经过 `INTAKE` → `CONFIRMED` → `EXECUTE` 三个阶段。默认处于 `INTAKE`，即使用户的第一句话使用了“请实现”“马上修复”等执行式措辞，也不能直接派工。

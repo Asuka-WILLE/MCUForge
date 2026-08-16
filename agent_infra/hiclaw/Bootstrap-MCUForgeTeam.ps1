@@ -57,6 +57,14 @@ $workerDefinitions = @(
 )
 
 $leaderProtocol = ConvertTo-YamlBlock -Text (Get-RoleSoul -RoleName "leader") -Indent 6
+$leaderMcpYaml = if ($EnableToolBridge) {
+    @"
+    mcpServers:
+      - name: stm32-tool-bridge
+        url: http://aigw-local.hiclaw.io:8080/mcp-servers/mcp-stm32-tool-bridge/mcp
+        transport: http
+"@
+} else { "" }
 $workerYaml = foreach ($worker in $workerDefinitions) {
     $roleSoul = ConvertTo-YamlBlock -Text (Get-RoleSoul -RoleName $worker.RoleDirectory) -Indent 8
     $mcpEntries = [System.Collections.Generic.List[string]]::new()
@@ -101,6 +109,7 @@ spec:
       enabled: true
       every: 30m
     workerIdleTimeout: 12h
+$leaderMcpYaml
     agents: |
 $leaderProtocol
   workers:
@@ -243,6 +252,70 @@ function Sync-LeaderProtocol {
 }
 
 Sync-LeaderProtocol
+
+function Sync-LeaderMcpConfig {
+    if (-not $EnableToolBridge) {
+        return
+    }
+
+    # Older HiClaw embedded images do not project leader.mcpServers from the
+    # Team manifest yet. Copy the already-authorized worker config so the
+    # Leader receives the same gateway route without exposing a host token.
+    $leaderWorker = "hiclaw-worker-mcuforge-lead"
+    $sourceWorker = "hiclaw-worker-mcuforge-firmware"
+    $containerPath = "/root/hiclaw-fs/agents/mcuforge-firmware/config/mcporter.json"
+    $leaderConfigDirectory = "/root/hiclaw-fs/agents/mcuforge-lead/config"
+    $leaderPath = "$leaderConfigDirectory/mcporter.json"
+    $temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("mcuforge-leader-mcp-" + [Guid]::NewGuid().ToString("N"))
+    [void](New-Item -ItemType Directory -Path $temporaryDirectory -Force)
+    $temporaryConfig = Join-Path $temporaryDirectory "mcporter-servers.json"
+    try {
+        & docker cp "${sourceWorker}:$containerPath" $temporaryConfig | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to read the authorized STM32 MCP config from the Firmware worker"
+        }
+        $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $temporaryConfig).Hash.ToLowerInvariant()
+        $leaderHash = (& docker exec $leaderWorker sh -lc "sha256sum $leaderPath 2>/dev/null | cut -d \" \" -f1" 2>$null | Out-String).Trim().ToLowerInvariant()
+        if ($sourceHash -eq $leaderHash) {
+            return
+        }
+        & docker exec $leaderWorker sh -lc "mkdir -p $leaderConfigDirectory" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create the Leader MCP config directory"
+        }
+        & docker cp $temporaryConfig "${leaderWorker}:$leaderPath" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to synchronize the STM32 MCP config to the Leader"
+        }
+        & docker restart $leaderWorker | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to restart the Leader after MCP config update"
+        }
+        $refreshDeadline = [DateTime]::UtcNow.AddMinutes(3)
+        do {
+            $refreshedTeamState = Invoke-HiClaw -Arguments @("get", "teams", $TeamName, "-o", "json") |
+                Out-String |
+                ConvertFrom-Json
+            if ($refreshedTeamState.phase -eq "Active" -and $refreshedTeamState.leaderReady -eq $true) {
+                return
+            }
+            Start-Sleep -Seconds 5
+        } while ([DateTime]::UtcNow -lt $refreshDeadline)
+        throw "Leader did not become ready after MCP config refresh"
+    }
+    finally {
+        $resolvedTemporaryConfig = [System.IO.Path]::GetFullPath($temporaryConfig)
+        if (Test-Path -LiteralPath $resolvedTemporaryConfig -PathType Leaf) {
+            Remove-Item -LiteralPath $resolvedTemporaryConfig -Force -ErrorAction SilentlyContinue
+        }
+        $resolvedTemporaryDirectory = [System.IO.Path]::GetFullPath($temporaryDirectory)
+        if (Test-Path -LiteralPath $resolvedTemporaryDirectory -PathType Container) {
+            Remove-Item -LiteralPath $resolvedTemporaryDirectory -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Sync-LeaderMcpConfig
 
 function Sync-WorkerProtocol {
     param([hashtable]$Worker)

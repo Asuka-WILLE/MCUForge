@@ -81,7 +81,7 @@ Invoke-Higress -Method POST -Uri "$consoleBase/session/login" -Session $session 
 
 $consumerResponse = Invoke-Higress -Method GET -Uri "$consoleBase/v1/consumers" -Session $session -Body $null
 $availableConsumers = @($consumerResponse.data | ForEach-Object { $_.name })
-$allowedConsumers = @("manager", "worker-mcuforge-firmware", "worker-mcuforge-verification")
+$allowedConsumers = @("manager", "worker-mcuforge-lead", "worker-mcuforge-firmware", "worker-mcuforge-verification")
 $missingConsumers = @($allowedConsumers | Where-Object { $_ -notin $availableConsumers })
 if ($missingConsumers.Count -gt 0) {
     throw "Required Higress consumers are missing: $($missingConsumers -join ', ')"
