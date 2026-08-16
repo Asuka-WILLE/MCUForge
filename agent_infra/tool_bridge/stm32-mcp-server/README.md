@@ -48,7 +48,7 @@ Firmware 通过 `stm32_create_patch_proposal` 提交统一 diff。桥接层会�
 
 默认模式下，人类在 Windows 上审阅这两个文件后，把 `proposal.json` 中的精确令牌复制到 Team 消息中，明确要求执行。启用 `-EnableAutonomousLocalMode` 后，用户在本次需求确认中写出 `AUTO_LOCAL`，Leader 可使用 `AUTO <proposal_id> <sha256>` 自动应用提案。两种模式都会再次检查当前 HEAD、源码哈希、策略哈希和补丁哈希，最后只执行 `git apply --index`，留下 `apply-record.json`。
 
-如果基线或策略已经过期，工具会返回 `TOOLING_BLOCKED`/策略错误并保持工程不变；必须由人重新冻结 Profile，不能修改旧提案或绕过检查。
+提案登记会记录 `baseline_validation.mode`。如果历史只是因 Agent 文档/配置提交或仓库拆分而漂移，且 `patch-policy.json` 中记录的允许路径源码哈希全部一致，工具会按非源码历史漂移继续；如果源码哈希变化、策略 JSON 不完整或历史分叉无法证明源码未变，才返回 `TOOLING_BLOCKED`/策略错误并保持工程不变。不能修改旧提案或绕过检查。
 
 ## 安全边界
 

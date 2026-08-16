@@ -3,6 +3,18 @@
   "run_id": "MCUFORGE-FS-002",
   "contract_version": "1.1.0",
   "source_baseline_commit": "efba900861e0fca3ebd6299163faebb38b6d25d0",
+  "source_baseline_branch": "feature/mcuforge-demo-infra",
+  "allow_non_source_history_drift": true,
+  "baseline_source_hashes": [
+    {
+      "path": "Core/Src/mcuforge_demo.c",
+      "sha256": "3dc16273ef586aaa48c5df9d573cdfae0904dc8bb5c0df3d23a72e9843208732"
+    },
+    {
+      "path": "Core/Inc/mcuforge_demo.h",
+      "sha256": "58f4a7e73c12339df46760c2ff4fab27a8287db1982f4f1990fe4c302cb1a65e"
+    }
+  ],
   "patch_rule": "modify_existing_files_only",
   "max_patch_bytes": 65536,
   "allowed_paths": [

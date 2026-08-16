@@ -44,6 +44,11 @@ function Get-MCUForgePatchPolicy {
     if ([int]$policy.max_patch_bytes -lt 1 -or @($policy.allowed_paths).Count -eq 0) {
         throw "Patch policy has invalid size limit or allowed paths."
     }
+    if ($null -ne $policy.allow_non_source_history_drift -and
+        [bool]$policy.allow_non_source_history_drift -and
+        @($policy.baseline_source_hashes).Count -eq 0) {
+        throw "Patch policy enables non-source history drift but has no baseline_source_hashes."
+    }
     return [pscustomobject]@{
         Path = $resolved
         Sha256 = (Get-FileHash -LiteralPath $resolved -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -157,6 +162,91 @@ function Get-MCUForgeSourceHashes {
     return @($hashes)
 }
 
+function Compare-MCUForgeSourceHashes {
+    param(
+        [Parameter(Mandatory)]$Expected,
+        [Parameter(Mandatory)]$Actual
+    )
+
+    $expectedMap = @{}
+    foreach ($item in @($Expected)) {
+        if ($null -eq $item.path -or $null -eq $item.sha256) {
+            return $false
+        }
+        $expectedMap[[string]$item.path] = ([string]$item.sha256).ToLowerInvariant()
+    }
+    foreach ($item in @($Actual)) {
+        $path = [string]$item.path
+        $hash = ([string]$item.sha256).ToLowerInvariant()
+        if (-not $expectedMap.ContainsKey($path) -or $expectedMap[$path] -ne $hash) {
+            return $false
+        }
+    }
+    return $expectedMap.Count -eq @($Actual).Count
+}
+
+function Get-MCUForgeBaselineValidation {
+    param(
+        [Parameter(Mandatory)][string]$RepositoryRoot,
+        [Parameter(Mandatory)]$Policy
+    )
+
+    $currentHead = (Invoke-MCUForgeGit -RepositoryRoot $RepositoryRoot -Arguments @("rev-parse", "HEAD") | Select-Object -First 1).Trim()
+    $branch = (Invoke-MCUForgeGit -RepositoryRoot $RepositoryRoot -Arguments @("branch", "--show-current") | Select-Object -First 1).Trim()
+    if ($null -ne $Policy.Data.source_baseline_branch -and
+        ([string]$Policy.Data.source_baseline_branch).Trim() -and
+        $branch -ne ([string]$Policy.Data.source_baseline_branch).Trim()) {
+        throw "Current branch does not match the policy source baseline branch. Policy=$($Policy.Data.source_baseline_branch) Current=$branch"
+    }
+    $baselineCommit = ([string]$Policy.Data.source_baseline_commit).Trim()
+    & git -C $RepositoryRoot cat-file -e "$baselineCommit`^{commit}" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Policy source baseline commit does not exist in this repository: $baselineCommit"
+    }
+
+    $sourceHashes = Get-MCUForgeSourceHashes -RepositoryRoot $RepositoryRoot -Policy $Policy
+    $isAncestor = $false
+    & git -C $RepositoryRoot merge-base --is-ancestor $baselineCommit HEAD 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        $isAncestor = $true
+    }
+
+    if ($isAncestor) {
+        $baselineDiffArguments = @(
+            "diff", "--name-only", "$baselineCommit..HEAD", "--"
+        ) + @($Policy.Data.allowed_paths)
+        $sourceChangesSinceBaseline = Invoke-MCUForgeGit -RepositoryRoot $RepositoryRoot -Arguments $baselineDiffArguments
+        if (($sourceChangesSinceBaseline -join "`n").Trim()) {
+            throw "Allowed source files changed after the frozen source baseline. Freeze a new policy before proposing another patch. Changed: $($sourceChangesSinceBaseline -join ', ')"
+        }
+        return [pscustomobject]@{
+            Mode = if ($currentHead -eq $baselineCommit) { "exact_baseline" } else { "descendant_non_source_drift" }
+            Branch = $branch
+            CurrentHead = $currentHead
+            BaselineCommit = $baselineCommit
+            SourceHashes = $sourceHashes
+        }
+    }
+
+    $allowNonSourceHistoryDrift = $false
+    if ($null -ne $Policy.Data.allow_non_source_history_drift) {
+        $allowNonSourceHistoryDrift = [bool]$Policy.Data.allow_non_source_history_drift
+    }
+    $baselineSourceHashes = @($Policy.Data.baseline_source_hashes)
+    if (-not $allowNonSourceHistoryDrift -or $baselineSourceHashes.Count -eq 0 -or
+        -not (Compare-MCUForgeSourceHashes -Expected $baselineSourceHashes -Actual $sourceHashes)) {
+        throw "Git history diverged from the policy source baseline and the allowed source hashes do not prove a non-source-only change. Freeze a new policy for this branch. Baseline=$baselineCommit Current=$currentHead"
+    }
+
+    return [pscustomobject]@{
+        Mode = "diverged_non_source_same_source_hash"
+        Branch = $branch
+        CurrentHead = $currentHead
+        BaselineCommit = $baselineCommit
+        SourceHashes = $sourceHashes
+    }
+}
+
 function Write-MCUForgeJsonFile {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -174,5 +264,7 @@ Export-ModuleMember -Function @(
     "Assert-MCUForgeTrackedWorktreeClean",
     "Test-MCUForgePatchFile",
     "Get-MCUForgeSourceHashes",
+    "Compare-MCUForgeSourceHashes",
+    "Get-MCUForgeBaselineValidation",
     "Write-MCUForgeJsonFile"
 )

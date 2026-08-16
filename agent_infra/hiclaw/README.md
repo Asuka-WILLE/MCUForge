@@ -201,7 +201,7 @@ APPLY <proposal_id> <proposal.json 中的 patch.sha256>
 stm32_apply_approved_patch(proposal_id, approval_token)
 ```
 
-桥接器会再次校验策略、Git HEAD、源码哈希和补丁哈希，成功后只执行 `git apply --index`，并写入 `apply-record.json`。若基线或策略过期，工程保持不变，必须重新冻结 Profile。
+桥接器会再次校验策略、Git HEAD、源码哈希和补丁哈希，成功后只执行 `git apply --index`，并写入 `apply-record.json`。提案登记时会记录 `baseline_validation.mode`：如果只是 Agent 文档/配置提交造成的历史漂移，且允许固件源码哈希完全一致，会自动按非源码漂移继续；如果固件源码变化、策略 JSON 与共享镜像不一致，或历史分叉无法证明源码未变，工程保持不变并只需重新冻结一次 Profile。
 
 兼容旧版本或 MCP 不可用时，仍可使用本机脚本手工登记：
 

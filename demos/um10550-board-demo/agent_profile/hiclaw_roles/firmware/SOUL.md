@@ -17,7 +17,7 @@
 3. 保持用户未授权改变的接口、生成代码区域和既有行为兼容。
 4. 每次实现后调用真实构建 Skill，并阅读完整错误日志。
 5. 把修改文件、接口变化、构建结果、未验证假设和回滚点交给 Verification Agent。
-6. 通过 `stm32_create_patch_proposal` 提交统一 diff 提案；该工具只把经过策略校验的提案写入 Windows 主机 Profile 审计目录，不写工程源码或 Git 暂存区。交付时附上变更理由、来源引用、验证计划和提案 ID。
+6. 通过 `stm32_create_patch_proposal` 提交统一 diff 提案；该工具只把经过策略校验的提案写入 Windows 主机 Profile 审计目录，不写工程源码或 Git 暂存区。交付时附上变更理由、来源引用、验证计划、提案 ID 和 `baseline_validation.mode`。若工具报告非固件历史漂移且允许路径源码哈希一致，可以继续；若报告源码变化、策略不一致或历史分叉无法证明安全，只报告一次阻塞，不循环重试旧提案。
 7. 不得调用 `stm32_apply_approved_patch`。只有人类审阅 `proposal.patch`/`proposal.json` 后，把精确审批令牌明确交给 Leader，才允许后续受控应用。
 
 ## 实时进度协议

@@ -17,22 +17,12 @@ $repositoryRoot = Get-MCUForgeRepositoryRoot -StartPath $projectRoot
 $policy = Get-MCUForgePatchPolicy -PolicyPath $PolicyFile
 Assert-MCUForgeTrackedWorktreeClean -RepositoryRoot $projectRoot
 
-$currentHead = (Invoke-MCUForgeGit -RepositoryRoot $projectRoot -Arguments @("rev-parse", "HEAD") | Select-Object -First 1).Trim()
-$branch = (Invoke-MCUForgeGit -RepositoryRoot $projectRoot -Arguments @("branch", "--show-current") | Select-Object -First 1).Trim()
-& git -C $projectRoot merge-base --is-ancestor $policy.Data.source_baseline_commit HEAD
-if ($LASTEXITCODE -ne 0) {
-    throw "Current HEAD is not descended from the policy source baseline. Create a new frozen policy for this branch."
-}
-$baselineDiffArguments = @(
-    "diff", "--name-only", "$($policy.Data.source_baseline_commit)..HEAD", "--"
-) + @($policy.Data.allowed_paths)
-$sourceChangesSinceBaseline = Invoke-MCUForgeGit -RepositoryRoot $projectRoot -Arguments $baselineDiffArguments
-if (($sourceChangesSinceBaseline -join "`n").Trim()) {
-    throw "Allowed source files changed after the frozen source baseline. Freeze a new policy before proposing another patch."
-}
+$baseline = Get-MCUForgeBaselineValidation -RepositoryRoot $projectRoot -Policy $policy
+$currentHead = $baseline.CurrentHead
+$branch = $baseline.Branch
 
 $patch = Test-MCUForgePatchFile -RepositoryRoot $projectRoot -PatchFile $PatchFile -Policy $policy
-$sourceHashes = Get-MCUForgeSourceHashes -RepositoryRoot $projectRoot -Policy $policy
+$sourceHashes = $baseline.SourceHashes
 $proposalRoot = Join-Path $profileRoot "patch_proposals"
 $proposalDirectory = Join-Path $proposalRoot $ProposalId
 if (Test-Path -LiteralPath $proposalDirectory) {
@@ -54,6 +44,11 @@ $manifest = [ordered]@{
         branch = $branch
         head = $currentHead
         project_root = [System.IO.Path]::GetRelativePath($repositoryRoot, $projectRoot).Replace("\", "/")
+    }
+    baseline_validation = [ordered]@{
+        mode = $baseline.Mode
+        policy_baseline_commit = $baseline.BaselineCommit
+        source_hashes_match = $true
     }
     patch = [ordered]@{
         file = "proposal.patch"
