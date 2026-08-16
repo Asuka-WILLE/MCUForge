@@ -244,6 +244,81 @@ function Sync-LeaderProtocol {
 
 Sync-LeaderProtocol
 
+function Sync-WorkerProtocol {
+    param([hashtable]$Worker)
+
+    $workerName = $Worker.Name
+    $workerSoulSource = Join-Path $rolesRoot "$($Worker.RoleDirectory)\SOUL.md"
+    $workerSoulHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $workerSoulSource).Hash.ToLowerInvariant()
+    $remoteObject = "hiclaw/hiclaw-storage/agents/$workerName/SOUL.md"
+    $persistentSoulHash = (& docker exec $Controller sh -lc "mc cat $remoteObject 2>/dev/null | sha256sum | cut -d \" \" -f1" 2>$null | Out-String).Trim().ToLowerInvariant()
+    $workerContainer = "hiclaw-worker-$workerName"
+    $runtimePath = "/root/hiclaw-fs/agents/$workerName/SOUL.md"
+    $runtimeSoulHash = (& docker exec $workerContainer sh -lc "sha256sum $runtimePath 2>/dev/null | cut -d \" \" -f1" 2>$null | Out-String).Trim().ToLowerInvariant()
+
+    if ($persistentSoulHash -eq $workerSoulHash -and $runtimeSoulHash -eq $workerSoulHash) {
+        return $false
+    }
+
+    $temporarySoul = New-TemporaryFile
+    try {
+        Copy-Item -LiteralPath $workerSoulSource -Destination $temporarySoul.FullName -Force
+        if ($persistentSoulHash -ne $workerSoulHash) {
+            $remoteTemp = "/tmp/$workerName-SOUL.md"
+            & docker cp $temporarySoul.FullName "${Controller}:$remoteTemp" | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to copy the $workerName protocol into the controller"
+            }
+            & docker exec $Controller sh -lc "mc cp $remoteTemp $remoteObject" | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to persist the $workerName protocol in HiClaw storage"
+            }
+        }
+        if ($runtimeSoulHash -ne $workerSoulHash) {
+            & docker cp $temporarySoul.FullName "${workerContainer}:$runtimePath" | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to synchronize the running $workerName protocol"
+            }
+            & docker restart $workerContainer | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to restart $workerName after protocol update"
+            }
+            return $true
+        }
+        return $false
+    }
+    finally {
+        $resolvedTemporarySoul = [System.IO.Path]::GetFullPath($temporarySoul.FullName)
+        if (Test-Path -LiteralPath $resolvedTemporarySoul) {
+            Remove-Item -LiteralPath $resolvedTemporarySoul -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+$workersRefreshed = @($workerDefinitions | ForEach-Object { Sync-WorkerProtocol -Worker $_ }) -contains $true
+if ($workersRefreshed) {
+    $workerRefreshDeadline = [DateTime]::UtcNow.AddMinutes(3)
+    $workersReadyAfterRefresh = $false
+    do {
+        $refreshedTeamState = Invoke-HiClaw -Arguments @("get", "teams", $TeamName, "-o", "json") |
+            Out-String |
+            ConvertFrom-Json
+        if (
+            $refreshedTeamState.phase -eq "Active" -and
+            $refreshedTeamState.leaderReady -eq $true -and
+            [int]$refreshedTeamState.readyWorkers -eq $workerDefinitions.Count
+        ) {
+            $workersReadyAfterRefresh = $true
+            break
+        }
+        Start-Sleep -Seconds 5
+    } while ([DateTime]::UtcNow -lt $workerRefreshDeadline)
+
+    if (-not $workersReadyAfterRefresh) {
+        throw "Workers did not become ready after protocol refresh"
+    }
+}
+
 Invoke-HiClaw -Arguments @("status")
 Invoke-HiClaw -Arguments @("get", "teams", $TeamName)
 Invoke-HiClaw -Arguments @("get", "workers", "--team", $TeamName)

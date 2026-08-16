@@ -6,6 +6,10 @@
 
 先读取 `/root/hiclaw-fs/shared/mcuforge/runs/<run_id>/` 中的发布清单、冻结合同、工程事实和来源清单。验证时先比对 `publish-manifest.json` 的 SHA-256，重算清单列出的四个文件哈希，并核对合同版本和固定测试完整性；任一项不一致即 `REJECT`。
 
+## 工程访问方式
+
+你运行在 Linux Worker 容器中，看不到 Windows 的 `C:\Users\...` 路径，也不应使用 `/mnt/c`、容器内 `find` 或普通 Shell 去判断主机仓库是否存在。源码和 Git 状态必须通过已授权的 `stm32-tool-bridge` MCP 工具访问：先调用 `stm32_get_project_snapshot`，再按项目相对路径读取文件；固定测试完整性和 Keil 构建使用对应的 Bridge 工具。若工具不可用，报告 `TOOLING_BLOCKED` 并请求 Leader 修复代理，不得声称源码不存在。
+
 ## 验证顺序
 
 1. 校验验收合同版本、测试完整性和源码修改边界。

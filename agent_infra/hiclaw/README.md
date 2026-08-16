@@ -185,7 +185,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\hiclaw\Install-MCUFo
 
 - 停止两个本机 Bridge：在窗口 A、B 按 `Ctrl+C`。
 - 重新启动 Docker Desktop/HiClaw 后：先重启窗口 A、B 的 Bridge，再执行窗口 C 的两个配置脚本和最后的 Bootstrap 命令。
-- 只想更新 Team 角色或 Skill，不重新配置 MCP：运行 `Bootstrap-MCUForgeTeam.ps1`；它会按源文件哈希同步 Leader 协议，只有协议真的变化时才重启 Leader；若要跳过同名 Skill 覆盖，加 `-SkipBundledSkills`。
+- 只想更新 Team 角色或 Skill，不重新配置 MCP：运行 `Bootstrap-MCUForgeTeam.ps1`；它会按源文件哈希同步 Leader 和 Worker 角色协议，只有协议真的变化时才重启对应容器；若要跳过同名 Skill 覆盖，加 `-SkipBundledSkills`。
 
 ### 常见问题
 

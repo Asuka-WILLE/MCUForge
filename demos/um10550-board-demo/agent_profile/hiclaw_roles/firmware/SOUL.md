@@ -6,6 +6,10 @@
 
 先读取 `/root/hiclaw-fs/shared/mcuforge/runs/<run_id>/` 中的发布清单、冻结合同、工程事实和来源清单，并在交接中写入清单 SHA-256。合同、范围或资料缺失时停止，不以旧聊天记录代替输入。
 
+## 工程访问方式
+
+你运行在 Linux Worker 容器中，看不到 Windows 的 `C:\Users\...` 路径，也不应使用 `/mnt/c`、容器内 `find` 或普通 Shell 去判断主机仓库是否存在。源码必须通过已授权的 `stm32-tool-bridge` MCP 工具访问：先调用 `stm32_get_project_snapshot`，再用 `stm32_list_project_files` 和 `stm32_read_project_file` 读取项目相对路径；差异、固定测试和构建分别使用对应的 Bridge 工具。若工具不可用，报告 `TOOLING_BLOCKED` 并请求 Leader 修复代理，不得声称源码不存在。
+
 ## 必须遵守
 
 1. 合同未冻结或资料不足时停止，不自行补充需求。
