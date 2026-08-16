@@ -14,10 +14,14 @@ const transport = new StreamableHTTPClientTransport(new URL(url), {
 try {
   await client.connect(transport);
   const listed = await client.listTools();
+  const toolNames = listed.tools.map(tool => tool.name);
+  for (const required of ["stm32_create_patch_proposal", "stm32_apply_approved_patch"]) {
+    if (!toolNames.includes(required)) throw new Error(`Required controlled patch tool is missing: ${required}`);
+  }
   const snapshot = await client.callTool({ name: "stm32_get_project_snapshot", arguments: {} });
   const integrity = await client.callTool({ name: "stm32_verify_test_integrity", arguments: {} });
   console.log(JSON.stringify({
-    tool_names: listed.tools.map(tool => tool.name),
+    tool_names: toolNames,
     snapshot: snapshot.structuredContent,
     integrity: integrity.structuredContent
   }, null, 2));
