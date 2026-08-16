@@ -169,6 +169,6 @@ if ($LASTEXITCODE -ne 0) { throw "Team update failed after MCP proxy registratio
     upstream = "http://host.docker.internal:$BridgePort/mcp"
     authorized_consumers = $allowedConsumers
     team = "mcuforge"
-    workers_with_tool = @("mcuforge-firmware", "mcuforge-verification")
+    workers_with_tool = @("mcuforge-lead", "mcuforge-firmware", "mcuforge-verification")
     consumer_hashes_written = $consumerTokenHashes.Count
 } | ConvertTo-Json -Depth 4
