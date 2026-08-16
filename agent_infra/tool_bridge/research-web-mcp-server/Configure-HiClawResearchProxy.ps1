@@ -1,7 +1,9 @@
 param(
     [string]$HiClawEnvPath = "C:\Users\hz_wu\hiclaw-manager.env",
     [string]$Controller = "hiclaw-controller",
-    [int]$BridgePort = 8766
+    [int]$BridgePort = 8766,
+    [switch]$EnableWideAgentAccess,
+    [switch]$SkipBundledSkills
 )
 
 $ErrorActionPreference = "Stop"
@@ -70,24 +72,35 @@ Invoke-Higress -Method POST -Uri "$consoleBase/session/login" -Session $session 
 
 $consumerResponse = Invoke-Higress -Method GET -Uri "$consoleBase/v1/consumers" -Session $session -Body $null
 $allowedConsumers = @("worker-mcuforge-research")
+if ($EnableWideAgentAccess) {
+    $allowedConsumers += @("worker-mcuforge-lead", "worker-mcuforge-requirements")
+}
 $availableConsumers = @($consumerResponse.data | ForEach-Object { $_.name })
 $missingConsumers = @($allowedConsumers | Where-Object { $_ -notin $availableConsumers })
 if ($missingConsumers.Count -gt 0) {
     throw "Required Higress consumers are missing: $($missingConsumers -join ', ')"
 }
 
-$consumerTokenHashes = foreach ($consumer in @($consumerResponse.data | Where-Object { $_.name -in $allowedConsumers })) {
+$consumerTokenHashes = [System.Collections.Generic.List[string]]::new()
+foreach ($consumer in @($consumerResponse.data | Where-Object { $_.name -in $allowedConsumers })) {
+    $consumerHashes = [System.Collections.Generic.List[string]]::new()
     foreach ($credential in @($consumer.credentials)) {
         foreach ($value in @($credential.values)) {
             if ([string]::IsNullOrWhiteSpace($value)) { continue }
             $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$value)
-            [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+            [void]$consumerHashes.Add(([Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes))).ToLowerInvariant())
         }
+    }
+    if ($consumerHashes.Count -eq 0) {
+        throw "Research MCP consumer has no usable key-auth credential: $($consumer.name)"
+    }
+    foreach ($hash in $consumerHashes) {
+        [void]$consumerTokenHashes.Add($hash)
     }
 }
 $consumerTokenHashes = @($consumerTokenHashes | Sort-Object -Unique)
-if ($consumerTokenHashes.Count -ne 1) {
-    throw "The Research Worker must have exactly one usable key-auth credential."
+if ($consumerTokenHashes.Count -eq 0) {
+    throw "No authorized Research MCP consumer has a usable key-auth credential."
 }
 $consumerHashPath = Join-Path $localAppData "MCUForge\research-web-bridge-consumer-hashes.json"
 $consumerHashJson = [ordered]@{
@@ -141,7 +154,22 @@ Invoke-Higress -Method PUT -Uri "$consoleBase/v1/mcpServer/consumers" -Session $
 } | Out-Null
 
 $bootstrap = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\hiclaw\Bootstrap-MCUForgeTeam.ps1"))
-& $bootstrap -Controller $Controller -EnableToolBridge -EnableResearchBridge
+if ($EnableWideAgentAccess) {
+    if ($SkipBundledSkills) {
+        & $bootstrap -Controller $Controller -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess -SkipBundledSkills
+    }
+    else {
+        & $bootstrap -Controller $Controller -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess
+    }
+}
+else {
+    if ($SkipBundledSkills) {
+        & $bootstrap -Controller $Controller -EnableToolBridge -EnableResearchBridge -SkipBundledSkills
+    }
+    else {
+        & $bootstrap -Controller $Controller -EnableToolBridge -EnableResearchBridge
+    }
+}
 if ($LASTEXITCODE -ne 0) { throw "Team update failed after MCP proxy registration." }
 
 [ordered]@{
@@ -149,6 +177,6 @@ if ($LASTEXITCODE -ne 0) { throw "Team update failed after MCP proxy registratio
     mcp_server = $mcpServerName
     upstream = "http://host.docker.internal:$BridgePort/mcp"
     authorized_consumers = $allowedConsumers
-    workers_with_tool = @("mcuforge-research")
+    workers_with_tool = @("mcuforge-research") + $(if ($EnableWideAgentAccess) { @("mcuforge-lead", "mcuforge-requirements") } else { @() })
     consumer_hashes_written = $consumerTokenHashes.Count
 } | ConvertTo-Json -Depth 4

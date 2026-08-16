@@ -1,7 +1,9 @@
 param(
     [string]$HiClawEnvPath = "C:\Users\hz_wu\hiclaw-manager.env",
     [string]$Controller = "hiclaw-controller",
-    [int]$BridgePort = 8765
+    [int]$BridgePort = 8765,
+    [switch]$EnableWideAgentAccess,
+    [switch]$SkipBundledSkills
 )
 
 $ErrorActionPreference = "Stop"
@@ -82,6 +84,9 @@ Invoke-Higress -Method POST -Uri "$consoleBase/session/login" -Session $session 
 $consumerResponse = Invoke-Higress -Method GET -Uri "$consoleBase/v1/consumers" -Session $session -Body $null
 $availableConsumers = @($consumerResponse.data | ForEach-Object { $_.name })
 $allowedConsumers = @("manager", "worker-mcuforge-lead", "worker-mcuforge-firmware", "worker-mcuforge-verification")
+if ($EnableWideAgentAccess) {
+    $allowedConsumers += @("worker-mcuforge-requirements", "worker-mcuforge-research")
+}
 $missingConsumers = @($allowedConsumers | Where-Object { $_ -notin $availableConsumers })
 if ($missingConsumers.Count -gt 0) {
     throw "Required Higress consumers are missing: $($missingConsumers -join ', ')"
@@ -160,7 +165,22 @@ Invoke-Higress -Method PUT -Uri "$consoleBase/v1/mcpServer/consumers" -Session $
 } | Out-Null
 
 $bootstrap = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\hiclaw\Bootstrap-MCUForgeTeam.ps1"))
-& $bootstrap -Controller $Controller -EnableToolBridge
+if ($EnableWideAgentAccess) {
+    if ($SkipBundledSkills) {
+        & $bootstrap -Controller $Controller -EnableToolBridge -EnableWideAgentAccess -SkipBundledSkills
+    }
+    else {
+        & $bootstrap -Controller $Controller -EnableToolBridge -EnableWideAgentAccess
+    }
+}
+else {
+    if ($SkipBundledSkills) {
+        & $bootstrap -Controller $Controller -EnableToolBridge -SkipBundledSkills
+    }
+    else {
+        & $bootstrap -Controller $Controller -EnableToolBridge
+    }
+}
 if ($LASTEXITCODE -ne 0) { throw "Team update failed after MCP proxy registration." }
 
 [ordered]@{
@@ -169,6 +189,6 @@ if ($LASTEXITCODE -ne 0) { throw "Team update failed after MCP proxy registratio
     upstream = "http://host.docker.internal:$BridgePort/mcp"
     authorized_consumers = $allowedConsumers
     team = "mcuforge"
-    workers_with_tool = @("mcuforge-lead", "mcuforge-firmware", "mcuforge-verification")
+    workers_with_tool = @("mcuforge-lead", "mcuforge-firmware", "mcuforge-verification") + $(if ($EnableWideAgentAccess) { @("mcuforge-requirements", "mcuforge-research") } else { @() })
     consumer_hashes_written = $consumerTokenHashes.Count
 } | ConvertTo-Json -Depth 4

@@ -5,6 +5,7 @@ param(
     [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\demos\um10550-board-demo\agent_profile")),
     [switch]$EnableToolBridge,
     [switch]$EnableResearchBridge,
+    [switch]$EnableWideAgentAccess,
     [switch]$SkipBundledSkills
 )
 
@@ -50,20 +51,29 @@ function ConvertTo-YamlBlock {
 }
 
 $workerDefinitions = @(
-    @{ Name = "mcuforge-requirements"; RoleDirectory = "requirements"; Identity = "MCU requirements and architecture specialist"; ToolBridge = $false; ResearchBridge = $false },
-    @{ Name = "mcuforge-research"; RoleDirectory = "research"; Identity = "MCU manual, example and license research specialist"; ToolBridge = $false; ResearchBridge = $true },
+    @{ Name = "mcuforge-requirements"; RoleDirectory = "requirements"; Identity = "MCU requirements and architecture specialist"; ToolBridge = $EnableWideAgentAccess; ResearchBridge = $EnableWideAgentAccess },
+    @{ Name = "mcuforge-research"; RoleDirectory = "research"; Identity = "MCU manual, example and license research specialist"; ToolBridge = $EnableWideAgentAccess; ResearchBridge = $true },
     @{ Name = "mcuforge-firmware"; RoleDirectory = "firmware"; Identity = "Modular embedded firmware engineer"; ToolBridge = $true; ResearchBridge = $false },
     @{ Name = "mcuforge-verification"; RoleDirectory = "verification"; Identity = "Independent build, hardware test and evidence verifier"; ToolBridge = $true; ResearchBridge = $false }
 )
 
 $leaderProtocol = ConvertTo-YamlBlock -Text (Get-RoleSoul -RoleName "leader") -Indent 6
 $leaderMcpYaml = if ($EnableToolBridge) {
-    @"
+    $leaderServers = [System.Collections.Generic.List[string]]::new()
+    [void]$leaderServers.Add(@"
     mcpServers:
       - name: stm32-tool-bridge
         url: http://aigw-local.hiclaw.io:8080/mcp-servers/mcp-stm32-tool-bridge/mcp
         transport: http
-"@
+"@)
+    if ($EnableResearchBridge -and $EnableWideAgentAccess) {
+        [void]$leaderServers.Add(@"
+      - name: research-web-bridge
+        url: http://aigw-local.hiclaw.io:8080/mcp-servers/mcp-research-web-bridge/mcp
+        transport: http
+"@)
+    }
+    ($leaderServers -join "`n")
 } else { "" }
 $workerYaml = foreach ($worker in $workerDefinitions) {
     $roleSoul = ConvertTo-YamlBlock -Text (Get-RoleSoul -RoleName $worker.RoleDirectory) -Indent 8
@@ -107,7 +117,7 @@ spec:
     model: $Model
     heartbeat:
       enabled: true
-      every: 30m
+      every: 5m
     workerIdleTimeout: 12h
 $leaderMcpYaml
     agents: |
@@ -144,7 +154,7 @@ Invoke-HiClaw -Arguments @(
     "update", "team",
     "--name", $TeamName,
     "--description", "MCU project intake, research, firmware implementation, independent verification and evidence",
-    "--leader-heartbeat-every", "30m",
+    "--leader-heartbeat-every", "5m",
     "--worker-idle-timeout", "12h"
 )
 

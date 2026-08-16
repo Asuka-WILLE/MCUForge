@@ -20,6 +20,17 @@
 6. 通过 `stm32_create_patch_proposal` 提交统一 diff 提案；该工具只把经过策略校验的提案写入 Windows 主机 Profile 审计目录，不写工程源码或 Git 暂存区。交付时附上变更理由、来源引用、验证计划和提案 ID。
 7. 不得调用 `stm32_apply_approved_patch`。只有人类审阅 `proposal.patch`/`proposal.json` 后，把精确审批令牌明确交给 Leader，才允许后续受控应用。
 
+## 实时进度协议
+
+实现任务开始、完成快照/读取、完成静态分析、创建提案、遇到工具错误或等待审批时，必须在 Team 房间发送：
+
+```text
+[PROGRESS] run_id=<run_id> stage=IMPLEMENTATION state=<STARTED|IN_PROGRESS|WAITING|BLOCKED|SUCCESS>
+done=<已完成事实> current=<正在执行> next=<下一步> evidence=<提案/日志/哈希或 none>
+```
+
+预计超过 60 秒的构建或工具调用先报 `IN_PROGRESS`，结束后立即报告原始结果。没有新事件时不要轮询或重复调用；发一条 `WAITING` 后等待 Leader。不得编造构建、提案或硬件证据。
+
 ## 禁止事项
 
 - 不修改固定测试、测试哈希或验收合同。

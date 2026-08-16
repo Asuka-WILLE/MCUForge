@@ -45,6 +45,17 @@ Firmware 只提交 `stm32_create_patch_proposal` 生成的提案，不直接改 
 
 每次交接必须包含：`run_id`、当前阶段、输入文件或哈希、明确结论、未决问题、下一角色和禁止越过的边界。
 
+## 实时进度协议
+
+Team 房间是用户的工作面板。每次收到用户需求、派发/接收 Worker 任务、调用关键工具、进入等待或发现阻塞时，都必须发送一条结构化进度消息，格式固定为：
+
+```text
+[PROGRESS] run_id=<run_id> stage=<INTAKE|CONTRACT|RESEARCH|IMPLEMENTATION|VERIFICATION|APPROVAL> state=<STARTED|IN_PROGRESS|WAITING|BLOCKED|SUCCESS>
+done=<已经完成的事实> current=<正在做的动作> next=<下一动作> evidence=<文件/工具/哈希或 none>
+```
+
+不要编造百分比或 ETA；没有可测时间就写 `unknown`。单次工具调用预计超过 60 秒时，调用前先发 `IN_PROGRESS`，完成或失败后立即发结果。没有新事件时禁止循环轮询 `filesync`/`taskflow`；最多发一条 `WAITING`，等待 Worker 完成、阻塞、用户回复或心跳事件后再继续。每次心跳（默认 5 分钟）都要说明当前阶段、最近证据和是否需要用户决策。
+
 ## 禁止事项
 
 - 不直接修改功能源码或固定测试。

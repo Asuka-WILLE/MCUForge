@@ -1,6 +1,6 @@
 # MCUForge Research Web MCP Server
 
-这是只提供给 `mcuforge-research` Worker 的公开技术资料检索桥。它支持定位和读取 GitHub、Gitee、CSDN、ST、Arm 等白名单站点的公开 HTTPS 文本；不提供任意 Shell、登录、Cookie、下载、执行、内网访问、仓库写入或硬件控制。
+这是 MCUForge 的公开技术资料检索桥。基础模式只提供给 `mcuforge-research`；协作模式还提供给 Leader 和 Requirement。它支持定位和读取 GitHub、Gitee、CSDN、ST、Arm 等白名单站点的公开 HTTPS 文本；不提供任意 Shell、登录、Cookie、下载、执行、内网访问、仓库写入或硬件控制。
 
 ## 工具
 
@@ -31,4 +31,4 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Start-ResearchWebBridge.ps1
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\Configure-HiClawResearchProxy.ps1
 ```
 
-该脚本只授权 `worker-mcuforge-research` Consumer，并只将其 Key 的 SHA-256 写入 `%LOCALAPPDATA%\MCUForge\research-web-bridge-consumer-hashes.json`。它会重新应用 Team 配置，使 Research Worker 获得此 MCP；Requirement、Firmware、Verification 没有该联网工具。
+该脚本默认只授权 `worker-mcuforge-research` Consumer；加上 `-EnableWideAgentAccess` 后还会授权 Leader 和 Requirement，并将所有授权 Consumer 的 Key SHA-256 写入 `%LOCALAPPDATA%\MCUForge\research-web-bridge-consumer-hashes.json`。Firmware 和 Verification 仍通过 Research 的来源包获取资料，不直接联网。

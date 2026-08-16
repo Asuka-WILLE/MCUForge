@@ -21,6 +21,17 @@
 7. 输出 `PASS` 或 `REJECT`；失败时把证据退回 Leader 和对应实现 Agent。
 8. 收到补丁提案时，只审阅其改动范围、来源和验证计划；不应用补丁。人类显式批准并由受控 `stm32_apply_approved_patch` 加入 Git 暂存区后，才对实际 diff 进行独立检查；若工具返回策略或基线错误，必须报告 `TOOLING_BLOCKED`，不得把提案当作已应用。
 
+## 实时进度协议
+
+在开始快照、完成每个验证层级、开始真实构建、构建结束、进入烧录审批等待或发现阻塞时，向 Team 房间发送：
+
+```text
+[PROGRESS] run_id=<run_id> stage=VERIFICATION state=<STARTED|IN_PROGRESS|WAITING|BLOCKED|SUCCESS>
+done=<已完成事实> current=<正在验证> next=<下一层级/审批> evidence=<日志/产物哈希/路径或 none>
+```
+
+Keil 构建或硬件测试预计超过 60 秒时先报 `IN_PROGRESS`，完成后附退出码、警告数和产物哈希。没有新事件时不要反复轮询，发一条 `WAITING` 后等待 Leader 或人类批准。不得把模型自述当成构建或硬件证据。
+
 ## 禁止事项
 
 - 不修改功能源码、固定测试、验收合同或研究结论。

@@ -2,7 +2,7 @@
 
 这份说明面向第一次拿到本仓库的人：如何在自己的 Windows 电脑上启动 MUC_AGENT 的 HiClaw 团队，并用它完成一次**可审计的 UM10550 开发板 Demo 开发任务**。
 
-它不是把“让 AI 随便改代码”包装成多 Agent。当前流程是：人提出需求 → Lead 拆解 → Requirement 冻结验收 → Research 查公开资料 → Firmware 交付受限补丁提案 → 人审阅并提供精确批准令牌 → 受控桥接器将补丁加入暂存区 → Verification 独立验证 → 人批准后才烧录或推送。
+它不是把“让 AI 随便改代码”包装成多 Agent。当前流程是：人提出需求 → Lead 拆解 → Requirement 冻结验收 → Research 查公开资料 → Firmware 交付受限补丁提案 → 人审阅并提供精确批准令牌 → 受控桥接器将补丁加入暂存区 → Verification 独立验证 → 人批准后才烧录或推送。协作模式下，所有角色会在 Team 房间发送结构化 `[PROGRESS]`，Leader 每 5 分钟心跳一次；这保证的是“阶段事件可见”，不是每秒输出。
 
 ## 1. 你会得到什么
 
@@ -79,7 +79,7 @@ Set-Location ..\..\..
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\tool_bridge\stm32-mcp-server\Start-STM32ToolBridge.ps1
 ```
 
-它默认绑定本仓库的 UM10550 `firmware/` 与 `agent_profile/`，给 Manager、Leader、Firmware 和 Verification 提供工程快照、受限文件读取、Git diff、测试完整性检查、Keil 构建，以及受控补丁提案/应用工具。提案只写 Profile 审计目录；应用只在精确人类批准令牌下执行 `git apply --index`。它没有任意 Shell、提交、推送、烧录或串口工具。
+它默认绑定本仓库的 UM10550 `firmware/` 与 `agent_profile/`。基础模式给 Manager、Leader、Firmware 和 Verification 提供工程快照、受限文件读取、Git diff、测试完整性检查、Keil 构建，以及受控补丁提案/应用工具；协作模式（`-EnableWideAgentAccess`）还给 Requirement 和 Research 同一套工程读取工具，并让 Leader、Requirement、Research 使用公开资料检索桥。提案只写 Profile 审计目录；应用只在精确人类批准令牌下执行 `git apply --index`。它没有任意 Shell、提交、推送、烧录或串口工具。
 
 ### 窗口 B：启动公开资料检索桥
 
@@ -105,17 +105,17 @@ $hiclawEnv = Join-Path $env:USERPROFILE 'hiclaw-manager.env'
 Test-Path $hiclawEnv
 
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\tool_bridge\stm32-mcp-server\Configure-HiClawProxy.ps1 `
-  -HiClawEnvPath $hiclawEnv
+  -HiClawEnvPath $hiclawEnv -EnableWideAgentAccess
 
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\tool_bridge\research-web-mcp-server\Configure-HiClawResearchProxy.ps1 `
-  -HiClawEnvPath $hiclawEnv
+  -HiClawEnvPath $hiclawEnv -EnableWideAgentAccess
 ```
 
 两个配置脚本会各自重新应用 Team；最后再执行一次幂等启动，确保五个角色、两个 MCP 和自定义 Skills 都已加载：
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\hiclaw\Bootstrap-MCUForgeTeam.ps1 `
-  -EnableToolBridge -EnableResearchBridge
+  -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess
 ```
 
 验证 Team：
@@ -144,6 +144,17 @@ pwsh -NoProfile -Command 'docker exec hiclaw-controller hiclaw get workers --tea
 Leader 不会因为收到这句话就开始改代码，而是先返回 `INTAKE_DRAFT`，把目标、现状、验收、非目标、影响范围、验证计划和待确认问题整理给你。你可以继续说“把超时改成 200 ms”“还要增加恢复条件”等修改意见；Leader 会更新草案。
 
 只有当你明确回复 `可以了，开始执行`、`确认执行` 或 `开始执行` 后，Leader 才会返回 `INTAKE_CONFIRMED` 并正式安排 Requirement、Research、Firmware 和 Verification。单独回复“好”“嗯”“可以”“继续”不会触发执行，避免误启动。
+
+### 实时进度怎么看
+
+Team 房间中的进度消息统一使用以下字段：
+
+```text
+[PROGRESS] run_id=... stage=... state=...
+done=... current=... next=... evidence=...
+```
+
+`STARTED` 表示刚接单，`IN_PROGRESS` 表示正在调用工具或构建，`WAITING` 表示等待新事件/审批，`BLOCKED` 表示需要人处理，`SUCCESS` 才表示本阶段完成。没有新事件时 Agent 不会无休止刷屏或轮询；超过 60 秒的工具调用必须先报开始、结束再报结果。
 
 确认后的交付顺序才是：合同 → 来源与事实卡片 → 补丁提案 → 固定测试完整性 → Keil 构建证据 → 等待你的后续批准。若某个证据尚未取得，Agent 必须写明“未验证”和原因，而不能把静态检查说成硬件通过。
 
