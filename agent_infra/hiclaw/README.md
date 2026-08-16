@@ -131,22 +131,21 @@ pwsh -NoProfile -Command 'docker exec hiclaw-controller hiclaw get workers --tea
 
 在浏览器打开 HiClaw 的 Element Web（本机默认是 `http://127.0.0.1:18088`），使用**你自己的** HiClaw 管理员账号登录。也可用 `http://127.0.0.1:18888` 打开 Manager/OpenClaw 控制界面。
 
-进入 `mcuforge` Team 房间，或给 Leader 私聊。不要硬编码 Matrix 地址；先用上一节的 `get workers` 输出确认本机 Leader 的实际 ID，然后在消息中 @ 提及它。
+进入 `mcuforge` Team 房间，或给 Leader 私聊。不要硬编码 Matrix 地址；先用上一节的 `get workers` 输出确认本机 Leader 的实际 ID，然后在消息中 @ 提及它。你只需要说自然语言，不需要自己写 Requirement/Firmware 的任务格式。
 
-第一次任务建议直接使用这个模板：
+例如直接发送：
 
 ```text
-任务名称：<一句话>
-现状：<已有行为、报错、复现步骤或工程位置>
-目标：<希望改变什么>
-验收：<可观察的输入、输出、时序和失败行为>
-限制：不改 <文件/协议/硬件路径>；不烧录、不操作 COM 口、不推送。
-
-请先由 Requirement 给出验收合同和范围；资料不足时交给 Research 查证，
-找不到手册就向我索要。未经批准不要写入源码、烧录或推送。
+我想让电脑控制帧中断后，开发板自动进入安全状态并清零虚拟输出。
+现在的 Demo 会保持最后一条控制命令，我希望超过 150 ms 没有新帧时停止。
+不要改 SBUS、RS485 或电机逻辑，也不要烧录、操作 COM 口或推送。
 ```
 
-正确的交付顺序应是：合同 → 来源与事实卡片 → 补丁提案 → 固定测试完整性 → Keil 构建证据 → 等待你的批准。若某个证据尚未取得，Agent 必须写明“未验证”和原因，而不能把静态检查说成硬件通过。
+Leader 不会因为收到这句话就开始改代码，而是先返回 `INTAKE_DRAFT`，把目标、现状、验收、非目标、影响范围、验证计划和待确认问题整理给你。你可以继续说“把超时改成 200 ms”“还要增加恢复条件”等修改意见；Leader 会更新草案。
+
+只有当你明确回复 `可以了，开始执行`、`确认执行` 或 `开始执行` 后，Leader 才会返回 `INTAKE_CONFIRMED` 并正式安排 Requirement、Research、Firmware 和 Verification。单独回复“好”“嗯”“可以”“继续”不会触发执行，避免误启动。
+
+确认后的交付顺序才是：合同 → 来源与事实卡片 → 补丁提案 → 固定测试完整性 → Keil 构建证据 → 等待你的后续批准。若某个证据尚未取得，Agent 必须写明“未验证”和原因，而不能把静态检查说成硬件通过。
 
 ## 7. 审核并应用 Agent 给出的补丁
 
@@ -186,7 +185,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\hiclaw\Install-MCUFo
 
 - 停止两个本机 Bridge：在窗口 A、B 按 `Ctrl+C`。
 - 重新启动 Docker Desktop/HiClaw 后：先重启窗口 A、B 的 Bridge，再执行窗口 C 的两个配置脚本和最后的 Bootstrap 命令。
-- 只想更新 Team 角色或 Skill，不重新配置 MCP：运行 `Bootstrap-MCUForgeTeam.ps1`；若要跳过同名 Skill 覆盖，加 `-SkipBundledSkills`。
+- 只想更新 Team 角色或 Skill，不重新配置 MCP：运行 `Bootstrap-MCUForgeTeam.ps1`；它会按源文件哈希同步 Leader 协议，只有协议真的变化时才重启 Leader；若要跳过同名 Skill 覆盖，加 `-SkipBundledSkills`。
 
 ### 常见问题
 

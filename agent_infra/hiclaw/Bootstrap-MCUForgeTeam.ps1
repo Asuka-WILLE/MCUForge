@@ -178,6 +178,72 @@ if (-not $SkipBundledSkills) {
     }
 }
 
+# The controller stores the Team manifest, but an existing CoPaw Leader keeps
+# its protocol file in its workspace.  Re-applying a Team therefore does not
+# hot-reload an edited leader SOUL.  Synchronize the source-of-truth file to
+# persistent storage and refresh the Leader only when its hash changed.
+function Sync-LeaderProtocol {
+    $leaderWorker = "hiclaw-worker-mcuforge-lead"
+    $leaderSoulSource = Join-Path $rolesRoot "leader\SOUL.md"
+    $leaderSoulHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $leaderSoulSource).Hash.ToLowerInvariant()
+    $persistentSoulHash = (& docker exec $Controller sh -lc 'mc cat hiclaw/hiclaw-storage/agents/mcuforge-lead/SOUL.md 2>/dev/null | sha256sum | cut -d " " -f1' 2>$null | Out-String).Trim().ToLowerInvariant()
+    $runtimeSoulHash = (& docker exec $leaderWorker sh -lc 'sha256sum /root/hiclaw-fs/agents/mcuforge-lead/SOUL.md 2>/dev/null | cut -d " " -f1' 2>$null | Out-String).Trim().ToLowerInvariant()
+
+    if ($persistentSoulHash -eq $leaderSoulHash -and $runtimeSoulHash -eq $leaderSoulHash) {
+        return
+    }
+
+    $temporarySoul = New-TemporaryFile
+    try {
+        Copy-Item -LiteralPath $leaderSoulSource -Destination $temporarySoul.FullName -Force
+        if ($persistentSoulHash -ne $leaderSoulHash) {
+            & docker cp $temporarySoul.FullName "${Controller}:/tmp/mcuforge-lead-SOUL.md"
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to copy the Leader protocol into the controller"
+            }
+            & docker exec $Controller sh -lc 'mc cp /tmp/mcuforge-lead-SOUL.md hiclaw/hiclaw-storage/agents/mcuforge-lead/SOUL.md'
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to persist the Leader protocol in HiClaw storage"
+            }
+        }
+        if ($runtimeSoulHash -ne $leaderSoulHash) {
+            & docker cp $temporarySoul.FullName "${leaderWorker}:/root/hiclaw-fs/agents/mcuforge-lead/SOUL.md"
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to synchronize the running Leader protocol"
+            }
+            & docker restart $leaderWorker | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to restart the Leader after protocol update"
+            }
+
+            $refreshDeadline = [DateTime]::UtcNow.AddMinutes(3)
+            $leaderReadyAfterRefresh = $false
+            do {
+                $refreshedTeamState = Invoke-HiClaw -Arguments @("get", "teams", $TeamName, "-o", "json") |
+                    Out-String |
+                    ConvertFrom-Json
+                if ($refreshedTeamState.phase -eq "Active" -and $refreshedTeamState.leaderReady -eq $true) {
+                    $leaderReadyAfterRefresh = $true
+                    break
+                }
+                Start-Sleep -Seconds 5
+            } while ([DateTime]::UtcNow -lt $refreshDeadline)
+
+            if (-not $leaderReadyAfterRefresh) {
+                throw "Leader did not become ready after protocol refresh"
+            }
+        }
+    }
+    finally {
+        $resolvedTemporarySoul = [System.IO.Path]::GetFullPath($temporarySoul.FullName)
+        if (Test-Path -LiteralPath $resolvedTemporarySoul) {
+            Remove-Item -LiteralPath $resolvedTemporarySoul -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Sync-LeaderProtocol
+
 Invoke-HiClaw -Arguments @("status")
 Invoke-HiClaw -Arguments @("get", "teams", $TeamName)
 Invoke-HiClaw -Arguments @("get", "workers", "--team", $TeamName)
