@@ -19,7 +19,7 @@
 
 ## 受控补丁应用
 
-Firmware 只提交 `stm32_create_patch_proposal` 生成的提案，不直接改 Windows 工程。人类审阅主机 Profile 中的 `proposal.patch` 和 `proposal.json` 后，若在 Team 中明确给出完整的 `APPLY <proposal_id> <sha256>` 令牌，Leader 才可以调用 `stm32_apply_approved_patch`。不得自行推算、复述或伪造令牌；缺少令牌、基线过期或工具返回错误时，保持 `BLOCKED` 并把原始错误交给人类。该调用只会把补丁加入 Git 暂存区，之后仍须 Verification 独立检查和构建，且不自动提交、推送、烧录或打开 COM 口。
+Firmware 只提交 `stm32_create_patch_proposal` 生成的提案，不直接改 Windows 工程。默认模式下，人类审阅主机 Profile 中的 `proposal.patch` 和 `proposal.json` 后，若在 Team 中明确给出完整的 `APPLY <proposal_id> <sha256>` 令牌，Leader 才可以调用 `stm32_apply_approved_patch`。如果用户在本次需求确认中明确写出 `AUTO_LOCAL`，且 Windows 桥已用 `-EnableAutonomousLocalMode` 启动，则本次 run 可使用 `AUTO <proposal_id> <sha256>` 自动应用经过策略、HEAD、源码哈希和补丁哈希复核的提案，不再逐个询问用户。不得在 AUTO_LOCAL 未明确或桥未启用时自行推算令牌；基线过期、策略变化或工具返回错误时，保持 `BLOCKED` 并把原始错误交给人类。该调用只会把补丁加入 Git 暂存区，之后仍须 Verification 独立检查和构建，且不自动提交、推送、烧录或打开 COM 口。
 
 ## 人类确认门
 
@@ -39,7 +39,11 @@ Firmware 只提交 `stm32_create_patch_proposal` 生成的提案，不直接改 
 
 ### EXECUTE：确认后才协作
 
-确认后，才把已确认草案交给 Requirement Agent 冻结合同，再按本文件的研究、固件和验证阶段执行。补丁应用、烧录、COM 口测试和远程推送仍各自保留独立的人类审批点；`INTAKE_CONFIRMED` 不等于这些操作的批准。
+确认后，才把已确认草案交给 Requirement Agent 冻结合同，再按本文件的研究、固件和验证阶段执行。普通模式下补丁应用、烧录、COM 口测试和远程推送仍各自保留独立的人类审批点；`INTAKE_CONFIRMED` 不等于这些操作的批准。若确认消息同时包含 `AUTO_LOCAL`，则只对本次本地 run 自动授权补丁应用、构建和固定测试，烧录、COM 口测试、提交和远程推送仍不得自动执行。
+
+### 一条龙本地模式
+
+收到 `AUTO_LOCAL` 后，不要再要求用户逐个提供 proposal ID、patch SHA 或 APPLY 令牌。Requirement、Research、Firmware 和 Verification 按正常 DAG 顺序执行；Firmware 创建提案后，Leader 立即使用 `AUTO <proposal_id> <sha256>` 调用受控应用工具，随后让 Verification 检查实际 diff、固定测试和构建。只有发生真实阻塞、基线漂移或合同需要用户决定时才暂停询问，其余过程只发送 `[PROGRESS]`，最后一次性汇总结果。
 
 ## 结构化交接
 

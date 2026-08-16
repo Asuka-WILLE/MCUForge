@@ -13,7 +13,7 @@
 | `stm32_verify_test_integrity` | 校验固定测试哈希 | 不修改测试或锁 |
 | `stm32_run_keil_build` | 调用固定 Keil 包装脚本 | 不烧录、不访问串口、不执行任意命令 |
 | `stm32_create_patch_proposal` | 校验并登记 Agent 统一 diff | 只写入 `ProfileRoot/patch_proposals/<id>/`，不写工程源码 |
-| `stm32_apply_approved_patch` | 复核后将已批准提案加入 Git 暂存区 | 必须提供人类复制的精确令牌；不提交、推送、烧录或操作 COM |
+| `stm32_apply_approved_patch` | 复核后将已批准提案加入 Git 暂存区 | 默认必须提供人类复制的 `APPLY` 令牌；显式启用本地自动模式后可用 `AUTO` 令牌；不提交、推送、烧录或操作 COM |
 
 ## 本机启动
 
@@ -22,6 +22,12 @@ cd agent_infra\tool_bridge\stm32-mcp-server
 npm install
 npm run build
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\Start-STM32ToolBridge.ps1
+```
+
+需要一次确认后自动完成本地补丁应用、构建和固定测试时，改用：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\Start-STM32ToolBridge.ps1 -EnableAutonomousLocalMode
 ```
 
 默认绑定 `demos\um10550-board-demo\firmware` 与其 `agent_profile`；其他工程必须在启动时显式传入 `-ProjectRoot`、`-ProfileRoot`。首次启动会在 `%LOCALAPPDATA%\MCUForge\stm32-tool-bridge.token` 生成 256 位随机令牌。令牌不写入仓库，也不应复制到聊天记录；Higress 代理保存上游认证信息，Worker 只持有自己的网关 Consumer Key。
@@ -40,7 +46,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Configure-HiClawProxy.ps1
 
 Firmware 通过 `stm32_create_patch_proposal` 提交统一 diff。桥接层会调用 `patch_channel/New-MCUForgePatchProposal.ps1`，重新检查冻结策略、Git 基线、路径白名单、文件哈希和 `git apply --check`，只把不可覆盖的 `proposal.patch` 与 `proposal.json` 写到 Profile 的审计目录；工程源码和暂存区不会改变。
 
-人类在 Windows 上审阅这两个文件后，把 `proposal.json` 中的精确令牌复制到 Team 消息中，明确要求执行。随后才允许调用 `stm32_apply_approved_patch`。该工具只接受 `proposal_id` 和精确 `APPLY <proposal_id> <sha256>` 令牌，并再次检查当前 HEAD、源码哈希、策略哈希和补丁哈希，最后只执行 `git apply --index`，留下 `apply-record.json`。
+默认模式下，人类在 Windows 上审阅这两个文件后，把 `proposal.json` 中的精确令牌复制到 Team 消息中，明确要求执行。启用 `-EnableAutonomousLocalMode` 后，用户在本次需求确认中写出 `AUTO_LOCAL`，Leader 可使用 `AUTO <proposal_id> <sha256>` 自动应用提案。两种模式都会再次检查当前 HEAD、源码哈希、策略哈希和补丁哈希，最后只执行 `git apply --index`，留下 `apply-record.json`。
 
 如果基线或策略已经过期，工具会返回 `TOOLING_BLOCKED`/策略错误并保持工程不变；必须由人重新冻结 Profile，不能修改旧提案或绕过检查。
 

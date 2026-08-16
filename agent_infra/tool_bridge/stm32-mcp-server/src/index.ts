@@ -49,6 +49,7 @@ const agentRoot = path.resolve(process.env.MCUFORGE_AGENT_ROOT ?? path.join(repo
 const profileRoot = path.resolve(process.env.MCUFORGE_PROFILE_ROOT ?? path.join(repositoryRoot, "demos/um10550-board-demo/agent_profile"));
 const bridgeToken = process.env.MCUFORGE_BRIDGE_TOKEN ?? "";
 const consumerHashPath = process.env.MCUFORGE_CONSUMER_HASH_PATH ?? "";
+const autonomousLocalMode = /^(1|true)$/i.test(process.env.MCUFORGE_AUTONOMOUS_LOCAL ?? "");
 const port = Number.parseInt(process.env.MCUFORGE_BRIDGE_PORT ?? String(DEFAULT_PORT), 10);
 
 function toolSuccess(value: Record<string, unknown>): CallToolResult {
@@ -414,23 +415,33 @@ function createServer(): McpServer {
   server.registerTool(
     "stm32_apply_approved_patch",
     {
-      title: "Apply Human-Approved STM32 Patch",
-      description: "Stage one previously recorded patch proposal only when the caller supplies the exact human approval token. Revalidates policy, Git HEAD, source hashes and patch hash; never commits, pushes, flashes, opens a COM port, or accepts an arbitrary path.",
+      title: "Apply Reviewed STM32 Patch",
+      description: "Stage one previously recorded patch proposal with an exact human APPLY token, or with an AUTO token when the Windows bridge was explicitly started in Autonomous Local Mode. Revalidates policy, Git HEAD, source hashes and patch hash; never commits, pushes, flashes, opens a COM port, or accepts an arbitrary path.",
       inputSchema: z.object({
         proposal_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/),
-        approval_token: z.string().regex(/^APPLY [A-Za-z0-9][A-Za-z0-9._-]{2,63} [a-f0-9]{64}$/i).describe("Exact token copied by a human from proposal.json, for example APPLY FS-001-001 <sha256>.")
+        approval_token: z.string().regex(/^(?:APPLY|AUTO) [A-Za-z0-9][A-Za-z0-9._-]{2,63} [a-f0-9]{64}$/i).describe("Use APPLY <proposal_id> <sha256> after human review, or AUTO <proposal_id> <sha256> only when Autonomous Local Mode was explicitly enabled before the run.")
       }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
     },
     async ({ proposal_id, approval_token }) => {
       try {
+        const isAutonomousApproval = /^AUTO /i.test(approval_token);
+        if (isAutonomousApproval && !autonomousLocalMode) {
+          return toolError(
+            "AUTO approval was requested but the Windows bridge is not running in Autonomous Local Mode.",
+            "Restart Start-STM32ToolBridge.ps1 with -EnableAutonomousLocalMode, or use the normal human APPLY approval token."
+          );
+        }
+        const effectiveApprovalToken = isAutonomousApproval
+          ? approval_token.replace(/^AUTO /i, "APPLY ")
+          : approval_token;
         const proposalDirectory = resolveProposalDirectory(proposal_id);
         const script = resolveAgentPath("patch_channel/Apply-MCUForgeApprovedPatch.ps1");
         const policy = path.join(profileRoot, "patch-policy.json");
         const result = await runCommand("pwsh.exe", [
           "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
           "-ProposalDirectory", proposalDirectory,
-          "-ApprovalToken", approval_token,
+          "-ApprovalToken", effectiveApprovalToken,
           "-ProjectRoot", projectRoot,
           "-ProfileRoot", profileRoot,
           "-PolicyFile", policy
@@ -442,6 +453,7 @@ function createServer(): McpServer {
         return toolSuccess({
           operation: "apply_approved_patch",
           proposal_id,
+          approval_mode: isAutonomousApproval ? "autonomous_local" : "human",
           status: applied.status ?? "applied_to_git_index",
           proposal_directory: path.relative(profileRoot, proposalDirectory).replaceAll("\\", "/"),
           patch_sha256: applied.patch_sha256 ?? null,

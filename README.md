@@ -33,7 +33,7 @@ MUC_AGENT/
 1. HiClaw Team：Leader、Requirement、Research、Firmware、Verification 五个角色协作。
 2. 受控 Research MCP：仅允许公开 HTTPS 技术资料搜索与读取，禁止登录、下载、执行、私网访问和仓库写入；协作模式下 Leader、Requirement、Research 都可以调用。
 3. STM32 MCP：提供项目读取、Git diff、固定测试完整性检查、Keil 构建，以及受控补丁提案和应用；协作模式下五个角色都能读取工程与证据。
-4. 受控补丁通道：Firmware 只能提交统一 diff；人类审阅并输入精确令牌后，Leader 才能把它加入 Git 暂存区。
+4. 受控补丁通道：默认由人类审阅并输入精确令牌后，Leader 才能把 Firmware 的统一 diff 加入 Git 暂存区；可选 `AUTO_LOCAL` 模式允许一次确认后自动完成本地应用、构建和固定测试。
 5. 实时进度协议：每个角色在接单、关键工具调用前后、等待、阻塞和完成时发布 `[PROGRESS]`，Leader 每 5 分钟发送一次心跳。
 
 ## 从 UM10550 示例开始

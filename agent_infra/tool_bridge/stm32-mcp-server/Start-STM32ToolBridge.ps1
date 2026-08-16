@@ -2,7 +2,8 @@ param(
     [string]$ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\demos\um10550-board-demo\firmware")),
     [string]$ProfileRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\demos\um10550-board-demo\agent_profile")),
     [string]$AgentRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..")),
-    [int]$Port = 8765
+    [int]$Port = 8765,
+    [switch]$EnableAutonomousLocalMode
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,6 +30,7 @@ $env:MCUFORGE_AGENT_ROOT = [System.IO.Path]::GetFullPath($AgentRoot)
 $env:MCUFORGE_BRIDGE_PORT = $Port.ToString([System.Globalization.CultureInfo]::InvariantCulture)
 $env:MCUFORGE_BRIDGE_TOKEN = (Get-Content -LiteralPath $tokenPath -Raw).Trim()
 $env:MCUFORGE_CONSUMER_HASH_PATH = $consumerHashPath
+$env:MCUFORGE_AUTONOMOUS_LOCAL = if ($EnableAutonomousLocalMode) { "1" } else { "0" }
 
 if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot "dist\index.js") -PathType Leaf)) {
     throw "dist/index.js is missing. Run npm install and npm run build in $PSScriptRoot first."
