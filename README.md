@@ -32,8 +32,8 @@ MUC_AGENT/
 
 1. HiClaw Team：Leader、Requirement、Research、Firmware、Verification 五个角色协作。
 2. 受控 Research MCP：仅允许公开 HTTPS 技术资料搜索与读取，禁止登录、下载、执行、私网访问和仓库写入。
-3. STM32 MCP：仅提供项目读取、Git diff、固定测试完整性检查和 Keil 构建。
-4. 受控补丁通道：Firmware 只能提交统一 diff；人类审阅并输入精确令牌后，才会加入 Git 暂存区。
+3. STM32 MCP：提供项目读取、Git diff、固定测试完整性检查、Keil 构建，以及受控补丁提案和应用。
+4. 受控补丁通道：Firmware 只能提交统一 diff；人类审阅并输入精确令牌后，Leader 才能把它加入 Git 暂存区。
 
 ## 从 UM10550 示例开始
 
