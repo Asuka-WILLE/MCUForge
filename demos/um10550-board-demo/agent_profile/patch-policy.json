@@ -2,7 +2,7 @@
   "schema_version": 1,
   "run_id": "MCUFORGE-FS-002",
   "contract_version": "1.1.0",
-  "source_baseline_commit": "efba900861e0fca3ebd6299163faebb38b6d25d0",
+  "source_baseline_commit": "3cdb681e61dc08a9ac56ed032316a971db125b61",
   "source_baseline_branch": "feature/mcuforge-demo-infra",
   "allow_non_source_history_drift": true,
   "baseline_source_hashes": [

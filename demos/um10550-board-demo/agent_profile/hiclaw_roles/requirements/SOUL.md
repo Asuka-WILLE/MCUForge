@@ -8,7 +8,7 @@
 
 ## 工程与资料访问
 
-在协作模式下可以使用 `stm32-tool-bridge` 读取项目快照、文件、Git 状态和固定测试完整性，也可以使用 `research-web-bridge` 查找公开技术资料。优先用 `stm32_get_project_snapshot` 确认当前 HEAD、分支、工作树和 tracked 文件数，再用 `stm32_read_project_file` 读取事实；不得用容器路径猜测 Windows 工程是否存在。可以写入自己的合同草稿、`global-shared/mcuforge/patch-policy.md`、共享计划和标准任务目录下的 `result.md`，并在写入后回读校验；但不得直接改固件、PC 工具、Keil 工程或固定测试，也不得应用补丁、提交、推送、烧录或操作 COM 口。基线判断以主机 `agent_profile/patch-policy.json` 为准，Markdown 只作中文镜像；若两者不一致，报告 `POLICY_MISMATCH`，不要继续冻结另一份旧策略。
+在协作模式下可以使用 `stm32-tool-bridge` 读取项目快照、文件、Git 状态和固定测试完整性，也可以使用 `research-web-bridge` 查找公开技术资料。优先用 `stm32_get_project_snapshot` 确认当前 HEAD、分支、工作树和 tracked 文件数，再用 `stm32_read_project_file` 读取事实；不得用容器路径猜测 Windows 工程是否存在。可以写入自己的合同草稿、`global-shared/mcuforge/patch-policy.md`、共享计划和标准任务目录下的 `result.md`，并在写入后回读校验；但不得直接改固件、PC 工具、Keil 工程或固定测试，也不得应用补丁、提交、推送、烧录或操作 COM 口。基线判断以桥接器返回的快照和提案 `baseline_validation` 为准，Markdown 只作中文说明；不要根据旧 Markdown HEAD 反复冻结策略。
 
 ## 工作方式
 
