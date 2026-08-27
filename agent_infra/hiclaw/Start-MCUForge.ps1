@@ -105,6 +105,34 @@ function Test-BridgeHealth {
     }
 }
 
+function Get-ConsolePort {
+    param([string]$EnvPath)
+
+    $defaultPort = 18001
+    if (-not (Test-Path -LiteralPath $EnvPath -PathType Leaf)) {
+        return $defaultPort
+    }
+
+    foreach ($line in Get-Content -LiteralPath $EnvPath) {
+        if ($line -match '^HICLAW_PORT_CONSOLE\s*=\s*([0-9]+)\s*$') {
+            return [int]$Matches[1]
+        }
+    }
+    return $defaultPort
+}
+
+function Test-HiClawConsole {
+    param([int]$Port)
+
+    try {
+        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/docs" -UseBasicParsing -TimeoutSec 3
+        return $response.StatusCode -eq 200
+    }
+    catch {
+        return $false
+    }
+}
+
 function Ensure-BridgeBuild {
     param([string]$BridgeDirectory)
 
@@ -198,8 +226,16 @@ try {
     }
     Write-Status "Docker 引擎已就绪。"
 
+    if (-not (Test-Path -LiteralPath $HiClawEnvPath -PathType Leaf)) {
+        throw "找不到 HiClaw 环境文件：$HiClawEnvPath；请确认安装时生成了该文件。"
+    }
+
     Start-HiClawContainers
     Write-Status "HiClaw Controller 已就绪。"
+
+    $consolePort = Get-ConsolePort -EnvPath $HiClawEnvPath
+    Wait-Until -Condition { Test-HiClawConsole -Port $consolePort } -TimeoutSeconds 120 -Description "HiClaw 控制台 API"
+    Write-Status "HiClaw 控制台 API 已就绪。"
 
     $stm32Bridge = Join-Path $resolvedRepoRoot "agent_infra\tool_bridge\stm32-mcp-server"
     $researchBridge = Join-Path $resolvedRepoRoot "agent_infra\tool_bridge\research-web-mcp-server"
@@ -209,25 +245,25 @@ try {
     Start-Bridge -BridgeScript (Join-Path $stm32Bridge "Start-STM32ToolBridge.ps1") -Port 8765 -Label "STM32 Bridge"
     Start-Bridge -BridgeScript (Join-Path $researchBridge "Start-ResearchWebBridge.ps1") -Port 8766 -Label "Research Bridge"
 
-    if (-not (Test-Path -LiteralPath $HiClawEnvPath -PathType Leaf)) {
-        throw "找不到 HiClaw 环境文件：$HiClawEnvPath；请确认安装时生成了该文件。"
-    }
-
     $configureStm32 = Join-Path $stm32Bridge "Configure-HiClawProxy.ps1"
     $configureResearch = Join-Path $researchBridge "Configure-HiClawResearchProxy.ps1"
     $bootstrap = Join-Path $resolvedRepoRoot "agent_infra\hiclaw\Bootstrap-MCUForgeTeam.ps1"
 
-    Write-Status "正在注册两个 MCP Bridge。"
+    Write-Status "正在注册 STM32 MCP Bridge。"
     Invoke-PowerShellScript -ScriptPath $configureStm32 -Arguments @(
         "-HiClawEnvPath", $HiClawEnvPath,
         "-Controller", $Controller,
         "-EnableWideAgentAccess"
     )
+    Write-Status "STM32 MCP Bridge 注册完成。"
+
+    Write-Status "正在注册 Research MCP Bridge。"
     Invoke-PowerShellScript -ScriptPath $configureResearch -Arguments @(
         "-HiClawEnvPath", $HiClawEnvPath,
         "-Controller", $Controller,
         "-EnableWideAgentAccess"
     )
+    Write-Status "Research MCP Bridge 注册完成。"
 
     Write-Status "正在 Bootstrap mcuforge Team。"
     Invoke-PowerShellScript -ScriptPath $bootstrap -Arguments @(
