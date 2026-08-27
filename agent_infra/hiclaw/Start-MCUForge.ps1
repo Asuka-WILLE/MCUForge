@@ -3,6 +3,7 @@ param(
     [string]$HiClawEnvPath = (Join-Path $env:USERPROFILE "hiclaw-manager.env"),
     [string]$Controller = "hiclaw-controller",
     [switch]$SkipDependencyBuild,
+    [switch]$ForceTeamBootstrap,
     [switch]$NoBrowser
 )
 
@@ -133,6 +134,22 @@ function Test-HiClawConsole {
     }
 }
 
+function Test-TeamReady {
+    try {
+        $json = docker exec $Controller hiclaw get teams mcuforge -o json 2>$null | Out-String
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($json)) {
+            return $false
+        }
+        $state = $json | ConvertFrom-Json
+        return $state.phase -eq "Active" -and
+            $state.leaderReady -eq $true -and
+            [int]$state.readyWorkers -eq 4
+    }
+    catch {
+        return $false
+    }
+}
+
 function Ensure-BridgeBuild {
     param([string]$BridgeDirectory)
 
@@ -253,7 +270,8 @@ try {
     Invoke-PowerShellScript -ScriptPath $configureStm32 -Arguments @(
         "-HiClawEnvPath", $HiClawEnvPath,
         "-Controller", $Controller,
-        "-EnableWideAgentAccess"
+        "-EnableWideAgentAccess",
+        "-SkipTeamBootstrap"
     )
     Write-Status "STM32 MCP Bridge 注册完成。"
 
@@ -261,17 +279,23 @@ try {
     Invoke-PowerShellScript -ScriptPath $configureResearch -Arguments @(
         "-HiClawEnvPath", $HiClawEnvPath,
         "-Controller", $Controller,
-        "-EnableWideAgentAccess"
+        "-EnableWideAgentAccess",
+        "-SkipTeamBootstrap"
     )
     Write-Status "Research MCP Bridge 注册完成。"
 
-    Write-Status "正在 Bootstrap mcuforge Team。"
-    Invoke-PowerShellScript -ScriptPath $bootstrap -Arguments @(
-        "-Controller", $Controller,
-        "-EnableToolBridge",
-        "-EnableResearchBridge",
-        "-EnableWideAgentAccess"
-    )
+    if ($ForceTeamBootstrap -or -not (Test-TeamReady)) {
+        Write-Status "mcuforge Team 尚未就绪，正在执行 Bootstrap。"
+        Invoke-PowerShellScript -ScriptPath $bootstrap -Arguments @(
+            "-Controller", $Controller,
+            "-EnableToolBridge",
+            "-EnableResearchBridge",
+            "-EnableWideAgentAccess"
+        )
+    }
+    else {
+        Write-Status "mcuforge Team 已就绪，跳过重复 Bootstrap。"
+    }
 
     Write-Status "验证 Team 与 Worker。"
     docker exec $Controller hiclaw get teams mcuforge

@@ -15,6 +15,7 @@
 - 只复用已运行且健康的 Bridge；缺少编译产物时才执行对应目录的 `npm ci` 和 `npm run build`。
 - 控制台 API 未就绪时会等待 `/docs` 健康检查通过，避免 Docker 重启后的注册竞态。
 - 桌面 `.cmd` 入口改为纯 ASCII 文本，并在 Bridge 注册前后输出分阶段状态，避免 Windows `cmd` 编码解析导致窗口闪退。
+- 启动时只注册 MCP 配置；Team 已处于 Active 且四个 Worker 就绪时跳过重复 Bootstrap，避免反复重建容器和写入 `hiclaw-data`。
 
 ## [未发布] - 2026-08-14
 

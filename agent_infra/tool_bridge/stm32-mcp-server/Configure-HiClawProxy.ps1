@@ -3,7 +3,8 @@ param(
     [string]$Controller = "hiclaw-controller",
     [int]$BridgePort = 8765,
     [switch]$EnableWideAgentAccess,
-    [switch]$SkipBundledSkills
+    [switch]$SkipBundledSkills,
+    [switch]$SkipTeamBootstrap
 )
 
 $ErrorActionPreference = "Stop"
@@ -164,24 +165,26 @@ Invoke-Higress -Method PUT -Uri "$consoleBase/v1/mcpServer/consumers" -Session $
     consumers = $allowedConsumers
 } | Out-Null
 
-$bootstrap = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\hiclaw\Bootstrap-MCUForgeTeam.ps1"))
-if ($EnableWideAgentAccess) {
-    if ($SkipBundledSkills) {
-        & $bootstrap -Controller $Controller -EnableToolBridge -EnableWideAgentAccess -SkipBundledSkills
+if (-not $SkipTeamBootstrap) {
+    $bootstrap = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\hiclaw\Bootstrap-MCUForgeTeam.ps1"))
+    if ($EnableWideAgentAccess) {
+        if ($SkipBundledSkills) {
+            & $bootstrap -Controller $Controller -EnableToolBridge -EnableWideAgentAccess -SkipBundledSkills
+        }
+        else {
+            & $bootstrap -Controller $Controller -EnableToolBridge -EnableWideAgentAccess
+        }
     }
     else {
-        & $bootstrap -Controller $Controller -EnableToolBridge -EnableWideAgentAccess
+        if ($SkipBundledSkills) {
+            & $bootstrap -Controller $Controller -EnableToolBridge -SkipBundledSkills
+        }
+        else {
+            & $bootstrap -Controller $Controller -EnableToolBridge
+        }
     }
+    if ($LASTEXITCODE -ne 0) { throw "Team update failed after MCP proxy registration." }
 }
-else {
-    if ($SkipBundledSkills) {
-        & $bootstrap -Controller $Controller -EnableToolBridge -SkipBundledSkills
-    }
-    else {
-        & $bootstrap -Controller $Controller -EnableToolBridge
-    }
-}
-if ($LASTEXITCODE -ne 0) { throw "Team update failed after MCP proxy registration." }
 
 [ordered]@{
     configured = $true

@@ -3,7 +3,8 @@ param(
     [string]$Controller = "hiclaw-controller",
     [int]$BridgePort = 8766,
     [switch]$EnableWideAgentAccess,
-    [switch]$SkipBundledSkills
+    [switch]$SkipBundledSkills,
+    [switch]$SkipTeamBootstrap
 )
 
 $ErrorActionPreference = "Stop"
@@ -153,24 +154,26 @@ Invoke-Higress -Method PUT -Uri "$consoleBase/v1/mcpServer/consumers" -Session $
     consumers = $allowedConsumers
 } | Out-Null
 
-$bootstrap = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\hiclaw\Bootstrap-MCUForgeTeam.ps1"))
-if ($EnableWideAgentAccess) {
-    if ($SkipBundledSkills) {
-        & $bootstrap -Controller $Controller -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess -SkipBundledSkills
+if (-not $SkipTeamBootstrap) {
+    $bootstrap = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\hiclaw\Bootstrap-MCUForgeTeam.ps1"))
+    if ($EnableWideAgentAccess) {
+        if ($SkipBundledSkills) {
+            & $bootstrap -Controller $Controller -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess -SkipBundledSkills
+        }
+        else {
+            & $bootstrap -Controller $Controller -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess
+        }
     }
     else {
-        & $bootstrap -Controller $Controller -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess
+        if ($SkipBundledSkills) {
+            & $bootstrap -Controller $Controller -EnableToolBridge -EnableResearchBridge -SkipBundledSkills
+        }
+        else {
+            & $bootstrap -Controller $Controller -EnableToolBridge -EnableResearchBridge
+        }
     }
+    if ($LASTEXITCODE -ne 0) { throw "Team update failed after MCP proxy registration." }
 }
-else {
-    if ($SkipBundledSkills) {
-        & $bootstrap -Controller $Controller -EnableToolBridge -EnableResearchBridge -SkipBundledSkills
-    }
-    else {
-        & $bootstrap -Controller $Controller -EnableToolBridge -EnableResearchBridge
-    }
-}
-if ($LASTEXITCODE -ne 0) { throw "Team update failed after MCP proxy registration." }
 
 [ordered]@{
     configured = $true
