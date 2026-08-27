@@ -2,6 +2,18 @@
 
 本文件记录 MCUForge 竞赛迁移期间的可审计变更。日期采用 `YYYY-MM-DD`；构建、测试、烧录结论必须以对应证据文件为准。
 
+## [未发布] - 2026-08-27
+
+### 新增
+
+- 新增仓库级 `agent_infra/hiclaw/Start-MCUForge.ps1`，自动检查/启动 Docker 与 HiClaw 容器、启动两个 Bridge、注册 MCP、Bootstrap `mcuforge` Team 并打开 Element Web。
+- 在 Windows 桌面新增 `MCUForge-HiClaw-一键启动.cmd`，支持双击恢复；启动日志写入 `%LOCALAPPDATA%\MCUForge\hiclaw-startup.log`，不记录密码或令牌。
+
+### 安全边界
+
+- 默认不启用本地自动补丁模式；脚本不会提交、推送、烧录或打开 COM。
+- 只复用已运行且健康的 Bridge；缺少编译产物时才执行对应目录的 `npm ci` 和 `npm run build`。
+
 ## [未发布] - 2026-08-14
 
 ### 新增
