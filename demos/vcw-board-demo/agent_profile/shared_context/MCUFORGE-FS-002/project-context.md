@@ -2,7 +2,7 @@
 
 ## 1. 项目与硬件边界
 
-- 仓库：`MUC_AGENT`；任务基线提交：`efba900`；固件根目录：`demos/vcw-board-demo/firmware`。
+- 仓库：`MCUForge`；任务基线提交：`efba900`；固件根目录：`demos/vcw-board-demo/firmware`。
 - MCU：STM32H723VET6；Keil 工程：`MDK-ARM/VCW.uvprojx`；Target：`VCW`。
 - 比赛模式：`MCUFORGE_DEMO_MODE=1` 时，主循环使用 `MCUForge_Demo_Process()`；不进入旧 SBUS、RS485 查询或真实电机写入流程。
 - Demo 只验证开发板、TFT、USB CDC、PC 虚拟控制和可审计证据。虚拟左右输出不能写入真实 RS485 电机链路。

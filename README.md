@@ -1,49 +1,158 @@
-# MUC_AGENT
+# MCUForge——面向单片机研发的多 Agent 工程协作基座
 
-MUC_AGENT 是面向嵌入式与单片机项目的协作式开发 Agent 平台。它不是某一辆车或某一块开发板的控制程序：用户给出需求后，Agent 团队会先冻结验收合同、检索公开手册与例程、生成受限补丁提案，并用真实构建和固定测试给出可审计结论。
+MCUForge 基于 HiClaw/AgentTeams，把单片机开发拆成需求、资料、固件、验证和协调五类职责。用户只需描述目标，系统会先形成可修改的工程草案，明确确认后才进入合同冻结、资料检索、补丁提案、真实构建和证据归档。它解决的不是“让 AI 多写一些代码”，而是让 AI 按工程流程安全地接手已有 MCU 项目。
 
-> **第一次使用或准备把本仓库交给其他人？** 请先阅读 [HiClaw 完整上手手册](agent_infra/hiclaw/README.md)。其中包含环境要求、Docker/HiClaw 初始化、两个 MCP Bridge 的启动与注册、发任务方式、补丁审批、重启和排错；不要只运行本页的一两条命令。
+当前仓库同时包含：
 
-## 它解决什么
+- 可复用的 MCUForge Agent Infra；
+- 一套可以真实运行的 VCW 开发板 Demo；
+- 一键环境检查、依赖安装、启动、验收与交付打包脚本；
+- 面向下一位维护者的完整中文接手说明。
 
-- **接手已有工程**：读取项目结构、手册、历史证据和固定测试，而不是凭聊天猜测。
-- **启动新工程**：Research Agent 仅从公开允许名单检索官方手册、GitHub、Gitee、CSDN 等技术来源；资料缺失时明确要求用户提供。
-- **安全协作开发**：需求、研究、固件和验证由不同角色负责；协作模式下角色可以共享工程与资料读取能力，但 Agent 仍不直接烧录、推送或操作串口。
-- **可演示的交付**：补丁必须经过路径白名单、哈希、人工批准和真实构建；失败证据同样保留。
+> 新维护者先读 [接手总手册](docs/HANDOFF.md)。比赛评审或复现人员可直接看下方“5 分钟启动”。
+
+## 5 分钟启动
+
+前提：Windows 10/11、PowerShell 7、Git、Docker Desktop、Node.js 20+，并已完成 HiClaw 部署和模型配置。
+
+```powershell
+git clone https://github.com/Asuka-WILLE/MCUForge.git
+Set-Location .\MCUForge
+
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\Check-MCUForgeEnvironment.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\Install-MCUForge.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\Start-MCUForge.ps1
+```
+
+启动脚本会恢复 Docker/HiClaw、启动两个本机 Bridge、注册 MCP、同步 Skills 和角色规则，并打开 Element Web。然后执行只读运行态验收：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\Test-MCUForge.ps1 -Mode Live
+```
+
+要真实检查 Manager 与 Worker 的消息链路：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\Test-MCUForge.ps1 -Mode Full -CoordinationRounds 1
+```
+
+`Full` 会向 Matrix 发送协调验收消息；普通代码检查使用默认的 `Static` 即可。详细步骤、预期输出和失败处理见 [运行与排障手册](docs/OPERATIONS.md)。
+
+## 它解决什么问题
+
+传统 AI 辅助 MCU 开发常见以下失败模式：
+
+1. 误解需求后直接修改源码，甚至越过用户边界。
+2. 小改动反复跑昂贵测试，大问题却没有独立复测。
+3. 把逻辑堆进 `main.c`，缺少模块、接口和回归意识。
+4. 每轮重新阅读手册，来源、版本和结论没有沉淀。
+5. 长任务没有阶段汇报，用户不知道 Agent 是在工作、等待还是卡死。
+6. 把“已生成补丁”误报成“已落地”，把静态检查误报成真实构建或硬件通过。
+7. Worker 显示在线但消息链路已经失效，Manager 一直等到心跳才发现。
+
+MCUForge 用需求确认门、角色分工、共享状态、受控 MCP、补丁白名单、独立验证、实时进度和自动恢复机制逐项处理这些问题。
+
+## 架构一览
+
+```mermaid
+flowchart LR
+    U["用户 / Element Web"] --> M["HiClaw Manager"]
+    M --> R["每个项目独立 Matrix 房间"]
+    R --> L["Lead"]
+    R --> Q["Requirement"]
+    R --> S["Research"]
+    R --> F["Firmware"]
+    R --> V["Verification"]
+    L & Q & S & F & V <--> O["MinIO 共享状态与证据"]
+    S --> W["Research Web MCP\n公开资料白名单"]
+    L & F & V --> T["STM32 MCP\n工程 / Git / Keil / 测试"]
+    T --> P["Windows 固件工程"]
+    M <--> C["Worker Control\n策略守护 / 回执 / 恢复"]
+```
+
+核心原则：Matrix 保存可读协作轨迹，MinIO 保存结构化任务状态与证据，MCP 只开放白名单能力，Windows 工程仍是源码事实源。完整说明见 [系统架构](docs/ARCHITECTURE.md)。
+
+## 五个 Agent 的职责
+
+| 角色 | 主要输入 | 主要输出 | 决策边界 |
+| --- | --- | --- | --- |
+| Lead | 用户确认的执行草案、各角色结果 | 任务拆解、交接、最终汇总 | 不代替 Firmware 写实现，不代替 Verification 判定通过 |
+| Requirement | 自然语言需求、项目边界 | 冻结验收合同 | 合同未确认不得放行编码 |
+| Research | 合同、芯片/器件问题 | 带版本、来源、许可证和置信度的事实卡片 | 只能访问允许的公开 HTTPS 来源 |
+| Firmware | 冻结合同、可信事实、工程快照 | 模块化设计与统一 diff 提案 | 不直接写主机源码，不烧录、不推送 |
+| Verification | 合同、实际 diff、固定测试、构建入口 | 独立验证结论与证据 | 不替实现角色改代码，不把缺证据写成通过 |
+
+Manager 不是第六个实现角色。它负责项目房间、成员、任务路由、状态汇总与 Worker 可靠性恢复。
+
+## 怎么发起一次任务
+
+1. 在 Element Web 打开 `Manager: default` 私聊。
+2. 用自然语言说“请创建一个新项目……”。
+3. Manager 自动创建 `Project: <名称>` 房间并拉入全部角色。
+4. 此后只在项目房间交流，不要分散到 Worker 私聊。
+5. Leader 先返回 `INTAKE_DRAFT`；你可以继续修改。
+6. 只有回复“可以了，开始执行”或“确认执行”才会正式派工。
+
+示例输入见 [examples/requests/create-project.txt](examples/requests/create-project.txt) 和 [examples/requests/change-request.txt](examples/requests/change-request.txt)。
 
 ## 仓库结构
 
 ```text
-MUC_AGENT/
-├── agent_infra/                  # 可复用的 HiClaw 团队、MCP 桥、Skills、补丁审批通道
-│   ├── hiclaw/
-│   ├── tool_bridge/
-│   ├── skills/
-│   └── patch_channel/
+MCUForge/
+├── Check-MCUForgeEnvironment.ps1   # 检查，不修改运行环境
+├── Install-MCUForge.ps1            # 安装两个 Node Bridge 的锁定依赖并构建
+├── Start-MCUForge.ps1              # 根目录一键启动入口
+├── Test-MCUForge.ps1               # Static / Live / Full 三层验收
+├── Build-MCUForgePackage.ps1       # 从已提交 HEAD 生成干净 ZIP 和 SHA-256
+├── config/                          # 不含密钥的示例配置
+├── docs/                            # 接手、架构、比赛、运维、开发说明
+├── examples/                        # 示例输入与预期输出
+├── agent_infra/
+│   ├── hiclaw/                      # Team、项目房间、可靠性控制与验收脚本
+│   ├── tool_bridge/                 # STM32 MCP 与 Research MCP
+│   ├── skills/                      # 可复用工程 Skill
+│   └── patch_channel/               # 受控补丁登记与应用
 └── demos/
-    └── vcw-board-demo/       # 一个可运行的示例，不是平台本体
-        ├── firmware/             # 完整 STM32/Keil 工程、PC 控制工具、固定测试和证据
-        └── agent_profile/        # 该示例的合同、角色、测试哈希与补丁策略
+    └── vcw-board-demo/
+        ├── firmware/                # STM32/Keil 工程、PC 工具和固定测试
+        └── agent_profile/           # 合同、角色、来源、哈希和补丁策略
 ```
 
-所以，**测试文件属于 Demo**，不是 `agent_infra` 的同级产品代码；`agent_infra` 通过显式 `ProjectRoot` 和 `ProfileRoot` 绑定到任一示例或用户工程。
+`agent_infra` 是产品本体，`demos/vcw-board-demo` 是验证该基座的示例。测试、固件和项目合同都属于 Demo，不应塞进 Infra。
 
-## 当前可运行能力
+## 安全边界
 
-1. HiClaw Team：Leader、Requirement、Research、Firmware、Verification 五个角色协作。
-2. 受控 Research MCP：仅允许公开 HTTPS 技术资料搜索与读取，禁止登录、下载、执行、私网访问和仓库写入；协作模式下 Leader、Requirement、Research 都可以调用。
-3. STM32 MCP：提供项目读取、Git diff、固定测试完整性检查、Keil 构建，以及受控补丁提案和应用；协作模式下五个角色都能读取工程与证据。
-4. 受控补丁通道：默认由人类审阅并输入精确令牌后，Leader 才能把 Firmware 的统一 diff 加入 Git 暂存区；可选 `AUTO_LOCAL` 模式允许一次确认后自动完成本地应用、构建和固定测试。
-5. 实时进度协议：每个角色在接单、关键工具调用前后、等待、阻塞和完成时发布 `[PROGRESS]`，Leader 每 5 分钟发送一次心跳。
+- 默认不直接修改 Windows 源码：Firmware 先创建补丁提案，由受控工具复核后应用。
+- 路径白名单、HEAD、源码哈希、补丁哈希和固定测试哈希必须一致。
+- 默认不开放任意 Shell、Git push、烧录或 COM 口工具。
+- `AUTO_LOCAL` 只允许本次本地补丁应用、构建和固定测试；不等于烧录或推送授权。
+- 密钥只放在使用者自己的 `hiclaw-manager.env` 或 HiClaw 安全存储中，绝不提交到仓库或发到房间。
+- 所有“通过”结论必须说明证据层级：静态检查、构建、集成、硬件测试不能混为一谈。
 
-## 从 VCW 示例开始
+## 文档导航
 
-示例入口在 [demos/vcw-board-demo](demos/vcw-board-demo/README.md)。它使用开发板、TFT、USB CDC 和电脑虚拟手柄，不需要车、遥控器或电机。完整启动顺序在 [HiClaw 完整上手手册](agent_infra/hiclaw/README.md#5-首次启动按顺序执行)：先启动两个本机 Bridge，再注册 MCP、创建 Team 并验证五个角色。
+- [接手总手册](docs/HANDOFF.md)：第一次接手时按顺序读。
+- [比赛要求与作品映射](docs/COMPETITION.md)：赛道、评分点、提交物和当前覆盖情况。
+- [系统架构](docs/ARCHITECTURE.md)：组件、数据流、状态机、权限与可靠性机制。
+- [运行与排障手册](docs/OPERATIONS.md)：安装、启动、验收、日志和常见故障。
+- [二次开发指南](docs/DEVELOPMENT.md)：换项目、改角色、加 Skill/MCP、测试和 Git 流程。
+- [当前验证证据](docs/VALIDATION.md)：本次交付实际执行过什么、哪些尚未验证。
+- [HiClaw 细节手册](agent_infra/hiclaw/README.md)：现有脚本参数与底层操作。
 
-运行 Team 或桥接服务不会写入固件、不会烧录、不会打开 COM 口，也不会推送远端；这些动作始终需要单独的人工批准。
+## 比赛定位
+
+本项目参加世界人工智能开源大赛“Agent Infra 新智基座”赛道。作品重点不是单个模型的代码生成能力，而是多 Agent 在复杂约束下完成任务拆解、上下文传递、工具调用、结果验证、执行证据、安全审计和异常恢复的完整闭环。官方要求与项目逐项映射见 [docs/COMPETITION.md](docs/COMPETITION.md)。
+
+## 生成干净代码包
+
+完成提交后执行：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\Build-MCUForgePackage.ps1
+```
+
+脚本只打包当前 Git `HEAD`，不会把密钥、`node_modules`、构建缓存、本地运行状态或未提交文件装进 ZIP，并同时生成 SHA-256 文件。GitHub 的 “Download ZIP” 也是可执行代码包；本脚本用于比赛平台需要单独上传 ZIP 的场景。
 
 ## License
 
-除另有声明的文件或目录外，本仓库的原创 MCUForge 代码及已获相应著作权人授权的 VCW Demo 内容，均按 [Apache License 2.0](LICENSE) 发布。VCW Demo 的原有著作权声明应继续保留。
-
-仓库中包含 Arm CMSIS、STM32 HAL 和 STM32 USB Device Library 等第三方组件；它们继续适用各自目录内的原许可证，根目录 Apache-2.0 不会覆盖这些条款。完整清单见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)，署名说明见 [NOTICE.md](NOTICE.md)。
+除另有声明的文件或目录外，本仓库原创代码与已获授权的 VCW Demo 内容按 [Apache License 2.0](LICENSE) 发布。Arm CMSIS、STM32 HAL、STM32 USB Device Library 等第三方组件继续适用各自目录内的许可证；详见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 与 [NOTICE.md](NOTICE.md)。

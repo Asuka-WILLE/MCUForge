@@ -31,6 +31,7 @@ Drivers/CMSIS/RTOS2/
 DebugConfig/
 /build/
 /dist/
+/artifacts/
 /agent_infra/tool_bridge/stm32-mcp-server/node_modules/
 /agent_infra/tool_bridge/stm32-mcp-server/dist/
 /agent_infra/tool_bridge/stm32-mcp-server/*.log
@@ -68,6 +69,7 @@ PC_Tools/*.spec
 *.uvopt
 *.uvgui.*
 *.uvgui
+/config/mcuforge.local.psd1
 
 # Windows
 Thumbs.db

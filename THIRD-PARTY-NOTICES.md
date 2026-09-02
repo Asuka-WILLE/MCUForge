@@ -1,7 +1,7 @@
 # Third-party notices
 
 The Apache-2.0 license at this repository's root applies to original
-MUC_AGENT code and to VCW demo content released by its relevant copyright
+MCUForge code and to VCW demo content released by its relevant copyright
 holders. It does not replace the license terms of bundled third-party code.
 
 | Component | Location | License / notice |

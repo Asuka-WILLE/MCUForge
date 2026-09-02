@@ -1,6 +1,6 @@
-# MUC_AGENT HiClaw 使用说明
+# MCUForge HiClaw 使用说明
 
-这份说明面向第一次拿到本仓库的人：如何在自己的 Windows 电脑上启动 MUC_AGENT 的 HiClaw 团队，并用它完成一次**可审计的 VCW 开发板 Demo 开发任务**。
+这份说明面向第一次拿到本仓库的人：如何在自己的 Windows 电脑上启动 MCUForge 的 HiClaw 团队，并用它完成一次**可审计的 VCW 开发板 Demo 开发任务**。
 
 它不是把“让 AI 随便改代码”包装成多 Agent。当前流程是：人提出需求 → Lead 拆解 → Requirement 冻结验收 → Research 查公开资料 → Firmware 交付受限补丁提案 → 人审阅并提供精确批准令牌 → 受控桥接器将补丁加入暂存区 → Verification 独立验证 → 人批准后才烧录或推送。协作模式下，所有角色会在 Team 房间发送结构化 `[PROGRESS]`，Leader 每 5 分钟心跳一次；这保证的是“阶段事件可见”，不是每秒输出。
 
@@ -16,7 +16,7 @@
 | Firmware | `mcuforge-firmware` | 读取工程、分析实现并交付受限的统一 diff。 |
 | Verification | `mcuforge-verification` | 校验固定测试、运行构建、报告证据与缺口。 |
 
-当前默认模型是 `deepseek-v4-pro`，可通过 `Bootstrap-MCUForgeTeam.ps1 -Model <模型名>` 覆盖。模型 API Key 只属于每位使用者自己的 HiClaw 配置，**不要复制、提交或发送任何人的 `hiclaw-manager.env`、令牌或密钥文件**。
+当前默认模型是 `deepseek-v4-flash`，可通过 `Bootstrap-MCUForgeTeam.ps1 -Model <模型名>` 覆盖。模型 API Key 只属于每位使用者自己的 HiClaw 配置，**不要复制、提交或发送任何人的 `hiclaw-manager.env`、令牌或密钥文件**。
 
 ## 2. 当前可复现范围
 
@@ -52,8 +52,8 @@ pwsh -NoProfile -Command 'docker inspect -f ''{{.State.Running}}'' hiclaw-contro
 ## 4. 获取代码与安装 Node 依赖
 
 ```powershell
-git clone https://github.com/Asuka-WILLE/MUC_AGENT.git
-Set-Location .\MUC_AGENT
+git clone https://github.com/Asuka-WILLE/MCUForge.git
+Set-Location .\MCUForge
 git status --short
 
 Set-Location .\agent_infra\tool_bridge\stm32-mcp-server
@@ -127,6 +127,28 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\hiclaw\Bootstrap-MCU
   -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess
 ```
 
+该 Bootstrap 会自动把 Manager 加入四个 MCUForge Worker 的 Matrix 群聊和私聊白名单，并将 `channel-policy.json` 与 `openclaw.json` 写入 HiClaw 的 MinIO 持久存储。Worker 重启、重建、常规配置更新或再次执行 Bootstrap 后无需手工补权限；脚本还强制协调消息使用单条最终 Matrix 事件，避免流式回复变成会被监听器忽略的 `m.replace` 编辑事件。
+
+Bootstrap 同时启动内网专用的 `mcuforge-worker-control`：不暴露主机端口，只允许操作五个精确命名的 MCUForge Agent 容器。它提供三层可靠性保护：
+
+1. 每 3 秒核对 Manager/Worker 白名单、`streaming=off` 与 MinIO 持久配置，发现漂移自动修复；
+2. 收到带完整 mention 的 `TASK_RECEIVED`、`PROGRESS`、`BLOCKED` 等机器状态后，以 Manager 身份立即发送 `[COORDINATOR_ACK]`，同时保留原事件给 Manager LLM 做状态落盘与调度；
+3. Worker 两次 30 秒无回执后，Manager 可自行执行一次 restart；仍无回执再执行一次 recreate，之后才向用户报告阻塞，不会无限重试。
+
+Bootstrap 还会安装并持久化 `project-room-lifecycle`：同时覆盖 Manager 工作区、
+`/opt/hiclaw/agent` 实际执行路径和 MinIO。以后即使 Manager 重启、容器重建或 HiClaw
+升级后重新执行 Bootstrap，“自然语言建项目 → 自动建专属房间 → 全员入房 → 房间内
+全程留痕”的规则也不会退回旧版 DM 流程。
+
+重复验证双向链路：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\hiclaw\Test-MCUForgeCoordination.ps1 `
+  -Rounds 3 -AckTimeoutSeconds 90 -ManagerTimeoutSeconds 30
+```
+
+脚本会并发检查四个 Worker 的最终 ACK、完整 mention、Manager 可见回执和两段时延；任一角色漏回、返回编辑事件或超时都会以非零退出码失败。
+
 验证 Team：
 
 ```powershell
@@ -136,13 +158,29 @@ pwsh -NoProfile -Command 'docker exec hiclaw-controller hiclaw get workers --tea
 
 预期：Team 为 `Active`，并有 Leader 加四个 ready Worker。
 
-## 6. 如何向 Team 发需求
+## 6. 如何创建项目并发需求
 
 在浏览器打开 HiClaw 的 Element Web（本机默认是 `http://127.0.0.1:18088`），使用**你自己的** HiClaw 管理员账号登录。也可用 `http://127.0.0.1:18888` 打开 Manager/OpenClaw 控制界面。
 
-进入 `mcuforge` Team 房间，或给 Leader 私聊。不要硬编码 Matrix 地址；先用上一节的 `get workers` 输出确认本机 Leader 的实际 ID，然后在消息中 @ 提及它。你只需要说自然语言，不需要自己写 Requirement/Firmware 的任务格式。
+新项目从 `Manager: default` 私聊发起，只需要一句自然语言，例如：
 
-例如直接发送：
+```text
+请创建一个新项目，名称为“VCW 串口遥测优化”。目标是增加遥测字段并同步修改电脑监控端；先澄清需求，不要立即改代码。
+```
+
+Manager 会在当前 turn 自动创建 `Project: <项目名>` 私有房间，并加入管理员、Manager、
+`mcuforge-lead`、Requirement、Research、Firmware 和 Verification。来源私聊只保留一条
+包含 `project_id` 与 `room_id` 的迁移通知；此后的需求澄清、计划确认、派工、进度、
+阻塞、验收和结项全部在该项目房间进行，不再分散到 Worker 私聊或 Team 公共房间。
+
+建房器使用 `CREATING → ROOM_CREATED → MEMBERS_READY → READY` 状态机。只有七名成员
+全部 `join`、Manager 房间权限生效、原始需求以 `[ORIGINAL_REQUEST]` 写入房间并同步
+MinIO 后，项目才会进入 `READY`。失败时进入 `BLOCKED`；Manager 必须用同一
+`project_id` 恢复原房间，不能换 ID 重复建房。
+
+进入新项目房间后继续用自然语言即可，不需要自己写 Requirement/Firmware 的任务格式。
+
+例如在项目房间发送：
 
 ```text
 我想让电脑控制帧中断后，开发板自动进入安全状态并清零虚拟输出。
@@ -153,6 +191,22 @@ pwsh -NoProfile -Command 'docker exec hiclaw-controller hiclaw get workers --tea
 Leader 不会因为收到这句话就开始改代码，而是先返回 `INTAKE_DRAFT`，把目标、现状、验收、非目标、影响范围、验证计划和待确认问题整理给你。你可以继续说“把超时改成 200 ms”“还要增加恢复条件”等修改意见；Leader 会更新草案。
 
 只有当你明确回复 `可以了，开始执行`、`确认执行` 或 `开始执行` 后，Leader 才会返回 `INTAKE_CONFIRMED` 并正式安排 Requirement、Research、Firmware 和 Verification。单独回复“好”“嗯”“可以”“继续”不会触发执行，避免误启动。
+
+检查某个项目房间的审计契约：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\hiclaw\Test-MCUForgeProjectRoom.ps1 `
+  -ProjectId '<meta.json 中的 project_id>'
+```
+
+该检查会核对 schema v2、唯一房间、七名成员、Manager 配置、`[PROJECT_CREATED]`、
+`[ORIGINAL_REQUEST]`、MinIO 副本与 `audit.ndjson`。自然语言入口的完整回归测试会真实
+创建一个验收房间，只有调试基础设施时才运行：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\hiclaw\Test-MCUForgeNaturalLanguageProject.ps1 `
+  -Title 'MCUForge 自然语言建房验收'
+```
 
 ### 实时进度怎么看
 
@@ -259,6 +313,10 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\hiclaw\Install-MCUFo
 | `dist/index.js is missing` | 对对应 Bridge 目录执行 `npm ci` 和 `npm run build`。 |
 | 配置脚本找不到环境文件 | 检查 `$hiclawEnv`，并显式传入自己的 `-HiClawEnvPath`；不要复制他人的环境文件。 |
 | Worker 没有 MCP 工具 | 两个 `/health` 是否正常；重新执行对应 `Configure-HiClaw...Proxy.ps1`，再执行 Bootstrap。 |
+| Worker 在线但 Manager 没反应 | 先运行 `Test-MCUForgeCoordination.ps1 -Rounds 1`；再检查 `docker exec hiclaw-manager curl -fsS http://mcuforge-worker-control:18765/health` 中 `manager_policy`、`worker_policy`、`coordinator_relay` 是否均正常。不要只看容器 `Running`。 |
+| 新项目仍在 DM 派工或生成 v1 `meta.json` | 重新执行 Bootstrap；它会同时更新 Manager 工作区、`/opt/hiclaw/agent` 和 MinIO。随后对原 `project_id` 重跑创建流程，禁止换 ID 另建房。 |
+| 项目房间显示 `BLOCKED` | 查看 `shared/projects/<project-id>/audit.ndjson` 与 `meta.json.last_error`；修复成员/Matrix 问题后用同一 ID 重试。`READY` 前不得派工。 |
+| Docker 镜像源临时 EOF | Bootstrap 会在已有 Bridge 镜像存在时使用本机 Python 运行层离线重建；首次安装仍需能拉取 `python:3.12-alpine`。 |
 | Agent 声称可以直接改/烧录/推送 | 这是越权结论。当前配置本来就没有开放这些工具；应要求它交付 patch 和证据。 |
 | 需要换成自己的工程 | 不要直接把文件替换进 Demo。先创建新的 `demos/<名称>/firmware` 与 `agent_profile`，冻结合同、固定测试哈希、角色规则和补丁白名单；再让 STM32 Bridge 显式绑定新的 `-ProjectRoot` 与 `-ProfileRoot`。 |
 

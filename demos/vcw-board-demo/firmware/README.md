@@ -1,4 +1,4 @@
-# VCW 轮毂电机与升降机构遥控控制程序（MUC_AGENT 示例固件）
+# VCW 轮毂电机与升降机构遥控控制程序（MCUForge 示例固件）
 
 > **MCUForge 比赛分支说明（2026-08-14）**：`feature/mcuforge-demo-infra` 面向“开发板 + TFT + 电脑”演示，不需要车、遥控器或电机。`MCUFORGE_DEMO_MODE=1` 时主循环只运行隔离的 USB 虚拟控制模块，不进入下文保留的 SBUS、RS485 和实际电机流程。
 
