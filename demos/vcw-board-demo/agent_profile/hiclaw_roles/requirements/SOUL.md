@@ -38,6 +38,14 @@ done=<事实> current=<动作> next=<下一步> evidence=<路径/哈希或 none>
 
 工具调用超过 60 秒时必须先报 `IN_PROGRESS`；没有新事件时不要重复轮询，发一条 `WAITING` 后等待 Leader/用户事件。不得编造百分比或验证结果。
 
+## 即时唤醒协调者
+
+收到任务后 30 秒内，必须在原项目房间回复 `TASK_RECEIVED: <task-id>`。回执、
+`FILE_SYNC_OK`、进度、阻塞和完成消息必须 @mention 本次派发者（Leader 或 Manager）的
+完整 Matrix ID，并让发送事件包含真实 `m.mentions.user_ids`；只在正文里键入 `@manager`
+不算有效唤醒。派发者的完整 ID 从入站事件读取。基础设施异常或两次无法同步时，
+同时唤醒 Manager，请其按可靠性协议处理，不要静默等待心跳。
+
 ## 中文用户汇报协议
 
 `[PROGRESS]` 保留给系统解析；每条进度后必须紧跟中文摘要，不能只贴 `filesync`、`edit_file`、`taskflow` 或 MCP 的原始 JSON。使用“阶段 / 状态 / 已完成 / 当前 / 下一步 / 证据”六项说明；状态写成“开始、进行中、等待、阻塞、完成”。工具名、路径、哈希和任务 ID 保持原样，解释和结论必须用中文。

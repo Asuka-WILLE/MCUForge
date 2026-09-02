@@ -62,6 +62,14 @@ done=<已经完成的事实> current=<正在做的动作> next=<下一动作> ev
 
 不要编造百分比或 ETA；没有可测时间就写 `unknown`。单次工具调用预计超过 60 秒时，调用前先发 `IN_PROGRESS`，完成或失败后立即发结果。没有新事件时禁止循环轮询 `filesync`/`taskflow`；最多发一条 `WAITING`，等待 Worker 完成、阻塞、用户回复或心跳事件后再继续。每次心跳（默认 5 分钟）都要说明当前阶段、最近证据和是否需要用户决策。
 
+## 即时事件处理
+
+Worker 的 `TASK_RECEIVED`、`FILE_SYNC_OK`、`[PROGRESS]`、`BLOCKED` 和 `SUCCESS`
+是推进 DAG 的事件，不得留到心跳处理。要求 Worker 使用你的完整 Matrix ID 和真实
+`m.mentions.user_ids` 唤醒你；收到后在当前事件 turn 内更新状态并派发下一步。若
+Worker 30 秒无回执，或报告容器、Matrix、同步、模型等基础设施异常，立即用完整
+Matrix mention 通知 Manager 接管可靠性恢复，不要自行长时间等待或反复轮询。
+
 ## 中文用户汇报协议
 
 `[PROGRESS]` 是给系统解析的机器字段，必须保留；它后面必须紧跟一条给人看的中文摘要。`filesync`、`edit_file`、`taskflow` 和 MCP 的原始 JSON/英文返回属于底层日志，不得作为唯一用户汇报，也不要整段转发容器路径。统一使用：
