@@ -132,6 +132,44 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Test-MCUForge.ps1 -Mode Live
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\Test-MCUForge.ps1 -Mode Full -CoordinationRounds 1
 ```
 
+### 第一次使用前，请先读这一段（写给初次使用者）
+
+**① 第一次对话，系统反应慢是正常的，请耐心等待。**
+部署完成后的第一条消息，Manager 需要先加载角色规则、建立项目上下文、连接模型服务，因此从发送到收到回复可能需要几十秒到一两分钟；项目刚创建时，五个角色各自"就位"也需要一点时间。这不是卡死——只要房间上方没有报错，就耐心等它回完第一轮。之后的对话会明显变快。
+
+**② 从"打个招呼"到"项目开工"的完整流程。**
+第一次使用，建议按下面的顺序走一遍，每一步都有明确反馈：
+
+1. **与 Manager 沟通**：打开 Element Web（`http://127.0.0.1:18088`），进入 `Manager: default` 私聊，用自然语言描述你想做的项目，例如"请创建一个新项目，做一个 STM32 的按键控制 LED"。
+2. **创建房间**：Manager 会自动创建 `Project: <名称>` 房间，并把 Lead、Requirement、Research、Firmware、Verification 五个角色拉进房间。
+3. **确认工程草案**：Lead 会先返回一份 `INTAKE_DRAFT`（工程草案），你可以继续追问、修改；只有你明确回复"可以了，开始执行"或"确认执行"，任务才正式派工。
+4. **指定本地文件夹为工作区**：在描述需求或确认草案时，告诉 Manager 你的本地工程文件夹在哪里（例如本仓库自带的 `demos/vcw-board-demo/firmware`，或你自己的 Keil 工程目录）。所有源码读取、补丁应用、编译和测试都发生在你指定的这个本地工作区里——它始终是唯一的"源码事实源"，Agent 不会绕过它去别处改代码。
+
+**③ 房间一段时间没反应？@Manager 催进度、查进度。**
+项目房间是群聊，消息必须 **@ 对应角色** 才会被处理（见上文「怎么发起一次任务」的提示框）。如果某个阶段等待时间明显偏长，直接在房间里发：
+
+```text
+@manager 查一下当前进度
+@manager 催一下 firmware 的任务状态
+```
+
+Manager 会去巡检各 Worker 的任务状态与回执情况，并把结果汇总回房间——哪些角色在工作、哪些在等待、哪些卡住了，一目了然。
+
+**④ 遇到排障手册之外的 bug？接入智能体排查，项目资料齐全。**
+如果问题在 [运行与排障手册](docs/OPERATIONS.md) 里找不到对应条目，可以把**完整报错输出 + 操作步骤**交给任意一个智能体编程助手（如 Codex、WorkBuddy 等）协助定位——本项目的脚本、日志和配置都是纯文本，智能体可以直接阅读分析。为了辅助定位，仓库提供了完整的资料体系：
+
+| 资料 | 位置 | 用途 |
+| --- | --- | --- |
+| 接手总手册 | [docs/HANDOFF.md](docs/HANDOFF.md) | 第一次接手时按顺序读 |
+| 系统架构说明 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 组件、数据流、状态机、权限与可靠性机制 |
+| 运行与排障手册 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | 安装、启动、验收、日志和常见故障 |
+| 二次开发指南 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 换项目、改角色、加 Skill/MCP、测试与 Git 流程 |
+| 当前验证证据 | [docs/VALIDATION.md](docs/VALIDATION.md) | 本次交付实际执行过什么、哪些尚未验证 |
+| HiClaw 细节手册 | [agent_infra/hiclaw/README.md](agent_infra/hiclaw/README.md) | 各脚本的参数与底层操作 |
+| 启动日志 | `%LOCALAPPDATA%\MCUForge\hiclaw-startup.log` | 每次启动的完整过程记录，排障第一现场 |
+
+把报错连同这些文档一起交给智能体，通常一两轮对话就能定位到具体脚本与原因。
+
 `Full` 会向 Matrix 发送协调验收消息；普通代码检查使用默认的 `Static` 即可。
 
 ## 它解决什么问题
