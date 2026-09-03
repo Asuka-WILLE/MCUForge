@@ -86,6 +86,26 @@ Add-Check -Name "HiClaw Controller" -Required $true -Passed $controllerReady `
     -Details $(if ($controllerReady) { "$Controller 正在运行" } else { "$Controller 未运行或不存在" }) `
     -Fix "先按 HiClaw 官方文档完成部署，或传入正确的 -Controller。"
 
+$workerImage = "local/mcuforge-hiclaw-worker:policy-safe-20260902-v2"
+$workerControlImage = "local/mcuforge-worker-control:20260902"
+$imageFix = "运行 agent_infra\hiclaw\worker-image-policy-safe\Build-MCUForgeWorkerImage.ps1 自动构建；或从交付包执行 docker load -i .\mcuforge-hiclaw-images.tar.gz 导入。"
+if ($dockerReady) {
+    & docker image inspect $workerImage 1>$null 2>$null
+    $foundWorker = $LASTEXITCODE -eq 0
+    & docker image inspect $workerControlImage 1>$null 2>$null
+    $foundControl = $LASTEXITCODE -eq 0
+    Add-Check -Name "MCUForge Worker 镜像" -Required $true -Passed $foundWorker `
+        -Details $(if ($foundWorker) { $workerImage } else { "缺失：$workerImage" }) -Fix $imageFix
+    Add-Check -Name "Worker Control 镜像" -Required $true -Passed $foundControl `
+        -Details $(if ($foundControl) { $workerControlImage } else { "缺失：$workerControlImage" }) -Fix $imageFix
+}
+else {
+    Add-Check -Name "MCUForge Worker 镜像" -Required $true -Passed $false `
+        -Details "Docker 引擎不可用，无法检查 $workerImage" -Fix "先启动 Docker Desktop。"
+    Add-Check -Name "Worker Control 镜像" -Required $true -Passed $false `
+        -Details "Docker 引擎不可用，无法检查 $workerControlImage" -Fix "先启动 Docker Desktop。"
+}
+
 $envExists = Test-Path -LiteralPath $HiClawEnvPath -PathType Leaf
 Add-Check -Name "HiClaw 环境文件" -Required $true -Passed $envExists `
     -Details $HiClawEnvPath -Fix "找到自己安装时生成的 hiclaw-manager.env，并用 -HiClawEnvPath 指定；不要复制别人的密钥。"

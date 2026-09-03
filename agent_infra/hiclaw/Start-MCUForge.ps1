@@ -266,6 +266,24 @@ try {
     $configureResearch = Join-Path $researchBridge "Configure-HiClawResearchProxy.ps1"
     $bootstrap = Join-Path $resolvedRepoRoot "agent_infra\hiclaw\Bootstrap-MCUForgeTeam.ps1"
 
+    # 顺序说明：全新环境（首次部署）必须先注册 mcuforge Team/Worker——HiClaw 网关
+    # 会在 Worker 注册后自动生成 Higress key-auth consumer，而两个 Configure 脚本
+    # 都要求这些 consumer 已存在。因此 Bootstrap 必须优先于 Configure 执行；
+    # 已就绪的环境会通过 Test-TeamReady 跳过，不会重复引导。
+    if ($ForceTeamBootstrap -or -not (Test-TeamReady)) {
+        Write-Status "mcuforge Team 尚未就绪，先执行 Bootstrap（首次部署将注册 Team/Worker 并生成网关 consumer）。"
+        Invoke-PowerShellScript -ScriptPath $bootstrap -Arguments @(
+            "-Controller", $Controller,
+            "-EnableToolBridge",
+            "-EnableResearchBridge",
+            "-EnableWideAgentAccess"
+        )
+        Write-Status "mcuforge Team Bootstrap 完成。"
+    }
+    else {
+        Write-Status "mcuforge Team 已就绪，跳过重复 Bootstrap。"
+    }
+
     Write-Status "正在注册 STM32 MCP Bridge。"
     Invoke-PowerShellScript -ScriptPath $configureStm32 -Arguments @(
         "-HiClawEnvPath", $HiClawEnvPath,
@@ -283,19 +301,6 @@ try {
         "-SkipTeamBootstrap"
     )
     Write-Status "Research MCP Bridge 注册完成。"
-
-    if ($ForceTeamBootstrap -or -not (Test-TeamReady)) {
-        Write-Status "mcuforge Team 尚未就绪，正在执行 Bootstrap。"
-        Invoke-PowerShellScript -ScriptPath $bootstrap -Arguments @(
-            "-Controller", $Controller,
-            "-EnableToolBridge",
-            "-EnableResearchBridge",
-            "-EnableWideAgentAccess"
-        )
-    }
-    else {
-        Write-Status "mcuforge Team 已就绪，跳过重复 Bootstrap。"
-    }
 
     Write-Status "验证 Team 与 Worker。"
     docker exec $Controller hiclaw get teams mcuforge

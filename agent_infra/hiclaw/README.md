@@ -49,6 +49,43 @@ pwsh -NoProfile -Command 'docker inspect -f ''{{.State.Running}}'' hiclaw-contro
 
 最后一条应输出 `true`。本项目假设 HiClaw 嵌入式安装的 Controller 容器名为 `hiclaw-controller`；若你的安装使用了不同名称，请在后续脚本中传入 `-Controller <容器名>`。
 
+### 3.1 准备 MCUForge Worker 镜像
+
+mcuforge Team 的 5 个 Worker 需要两个本地镜像（构建源已提交在仓库内，可离线重建）：
+
+| 镜像 | 来源 |
+| --- | --- |
+| `local/mcuforge-hiclaw-worker:policy-safe-20260902-v2` | 在 HiClaw 官方 `hiclaw-worker` 镜像上打"策略安全"层（详见 `worker-image-policy-safe/Dockerfile`） |
+| `local/mcuforge-worker-control:20260902` | 仓库内 `worker-control-bridge/` 直接构建 |
+
+**方式 A（推荐，联网构建）**——在仓库根目录执行：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File `
+  .\agent_infra\hiclaw\worker-image-policy-safe\Build-MCUForgeWorkerImage.ps1
+```
+
+首次会拉取官方基础镜像（`hiclaw-worker:latest`，约 2-4 GB）与 `python:3.12-alpine`；之后重复执行会因镜像已存在而跳过。
+
+**方式 B（离线导入）**——如果随交付包提供镜像 tar：
+
+```powershell
+docker load -i .\mcuforge-hiclaw-images.tar.gz
+docker images   # 应能看到上述两个 local/mcuforge-* 镜像
+```
+
+维护者可用仓库内 `agent_infra/hiclaw/Export-MCUForgeImages.ps1` 重新生成该 tar（输出 `artifacts/`，含 SHA-256）。
+
+**方式 C（基础镜像不在默认仓库）**——若你的 HiClaw 来自其它区域 registry，用 `-BaseImage` 覆盖：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File `
+  .\agent_infra\hiclaw\worker-image-policy-safe\Build-MCUForgeWorkerImage.ps1 `
+  -BaseImage '<你的 hiclaw-worker 镜像:标签>'
+```
+
+之后可用 `Check-MCUForgeEnvironment.ps1` 复检：两项"MCUForge … 镜像"检查应显示通过。
+
 ## 4. 获取代码与安装 Node 依赖
 
 ```powershell
@@ -109,9 +146,18 @@ pwsh -NoProfile -Command 'Invoke-WebRequest http://127.0.0.1:8766/health | Selec
 
 然后将两个 Bridge 注册到你自己的 HiClaw 网关。`HiClawEnvPath` 必须指向**你自己**安装时生成的环境文件，通常位于 `$env:USERPROFILE\hiclaw-manager.env`：
 
+> **顺序要求**：全新环境必须**先 Bootstrap 再 Configure**——HiClaw 网关只有在
+> mcuforge Team/Worker 注册后才会生成各 Worker 的 key-auth consumer，而两个
+> Configure 脚本会校验这些 consumer 是否已存在。若你在全新网关（无 consumer）
+> 下直接执行 Configure，脚本会自动补跑一次 Bootstrap 并轮询等待 consumer 生成
+> （默认最多 120 秒），但推荐始终先执行一次 Bootstrap：
+
 ```powershell
 $hiclawEnv = Join-Path $env:USERPROFILE 'hiclaw-manager.env'
 Test-Path $hiclawEnv
+
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\hiclaw\Bootstrap-MCUForgeTeam.ps1 `
+  -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess
 
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\tool_bridge\stm32-mcp-server\Configure-HiClawProxy.ps1 `
   -HiClawEnvPath $hiclawEnv -EnableWideAgentAccess
@@ -120,14 +166,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\tool_bridge\research
   -HiClawEnvPath $hiclawEnv -EnableWideAgentAccess
 ```
 
-两个配置脚本会各自重新应用 Team；最后再执行一次幂等启动，确保五个角色、两个 MCP 和自定义 Skills 都已加载：
-
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\agent_infra\hiclaw\Bootstrap-MCUForgeTeam.ps1 `
-  -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess
-```
-
-该 Bootstrap 会自动把 Manager 加入四个 MCUForge Worker 的 Matrix 群聊和私聊白名单，并将 `channel-policy.json` 与 `openclaw.json` 写入 HiClaw 的 MinIO 持久存储。Worker 重启、重建、常规配置更新或再次执行 Bootstrap 后无需手工补权限；脚本还强制协调消息使用单条最终 Matrix 事件，避免流式回复变成会被监听器忽略的 `m.replace` 编辑事件。
+Bootstrap 除创建 Team/Worker 外，还会自动把 Manager 加入四个 MCUForge Worker 的 Matrix 群聊和私聊白名单，并将 `channel-policy.json` 与 `openclaw.json` 写入 HiClaw 的 MinIO 持久存储。Worker 重启、重建、常规配置更新或再次执行 Bootstrap 后无需手工补权限；脚本还强制协调消息使用单条最终 Matrix 事件，避免流式回复变成会被监听器忽略的 `m.replace` 编辑事件。
 
 Bootstrap 同时启动内网专用的 `mcuforge-worker-control`：不暴露主机端口，只允许操作五个精确命名的 MCUForge Agent 容器。它提供三层可靠性保护：
 

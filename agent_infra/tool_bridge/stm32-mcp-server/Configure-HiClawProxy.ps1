@@ -2,6 +2,8 @@ param(
     [string]$HiClawEnvPath = "C:\Users\hz_wu\hiclaw-manager.env",
     [string]$Controller = "hiclaw-controller",
     [int]$BridgePort = 8765,
+    [int]$ConsumerWaitSeconds = 120,
+    [int]$ConsumerRetrySeconds = 5,
     [switch]$EnableWideAgentAccess,
     [switch]$SkipBundledSkills,
     [switch]$SkipTeamBootstrap
@@ -82,16 +84,48 @@ Invoke-Higress -Method POST -Uri "$consoleBase/session/login" -Session $session 
     password = $settings["HICLAW_ADMIN_PASSWORD"]
 } | Out-Null
 
-$consumerResponse = Invoke-Higress -Method GET -Uri "$consoleBase/v1/consumers" -Session $session -Body $null
-$availableConsumers = @($consumerResponse.data | ForEach-Object { $_.name })
+function Get-HigressConsumers {
+    $resp = Invoke-Higress -Method GET -Uri "$consoleBase/v1/consumers" -Session $session -Body $null
+    return @($resp.data | ForEach-Object { $_.name })
+}
+
 $allowedConsumers = @("manager", "worker-mcuforge-lead", "worker-mcuforge-firmware", "worker-mcuforge-verification")
 if ($EnableWideAgentAccess) {
     $allowedConsumers += @("worker-mcuforge-requirements", "worker-mcuforge-research")
 }
-$missingConsumers = @($allowedConsumers | Where-Object { $_ -notin $availableConsumers })
+
+# 首次部署引导：mcuforge Team/Worker 尚未注册时，网关不会有对应 consumer。
+# 此时不要直接失败——先执行一次 Team Bootstrap（HiClaw 网关会在 Worker 注册后
+# 自动生成 key-auth consumer），再轮询等待 consumer 出现。
+$bootstrapScriptForConsumer = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\hiclaw\Bootstrap-MCUForgeTeam.ps1"))
+$consumerDeadline = (Get-Date).AddSeconds($ConsumerWaitSeconds)
+$consumerBootstrapped = $false
+$missingConsumers = @($allowedConsumers)
+do {
+    $availableConsumers = Get-HigressConsumers
+    $missingConsumers = @($allowedConsumers | Where-Object { $_ -notin $availableConsumers })
+    if ($missingConsumers.Count -eq 0) { break }
+
+    if (-not $consumerBootstrapped -and -not $SkipTeamBootstrap) {
+        Write-Host "[MCUForge] 首次部署检测：网关缺少 Worker consumer（$($missingConsumers -join ', ')）。"
+        Write-Host "[MCUForge] 正在注册 mcuforge Team/Worker 以生成网关 consumer……"
+        & $bootstrapScriptForConsumer -Controller $Controller -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess
+        if ($LASTEXITCODE -ne 0) {
+            throw "Team bootstrap failed (exit $LASTEXITCODE)：$bootstrapScriptForConsumer"
+        }
+        $consumerBootstrapped = $true
+        Write-Host "[MCUForge] Team Bootstrap 完成，等待网关生成 consumer……"
+    }
+    else {
+        Write-Host "[MCUForge] 正在等待网关生成 consumer：$($missingConsumers -join ', ')（第 $([math]::Ceiling(((Get-Date) - $consumerDeadline).TotalSeconds * -1 / $ConsumerRetrySeconds)) 轮后重试……）"
+        Start-Sleep -Seconds $ConsumerRetrySeconds
+    }
+} while ((Get-Date) -lt $consumerDeadline)
+
 if ($missingConsumers.Count -gt 0) {
-    throw "Required Higress consumers are missing: $($missingConsumers -join ', ')"
+    throw "Required Higress consumers are still missing after $ConsumerWaitSeconds s: $($missingConsumers -join ', ')。请确认：① HiClaw 已部署且 hiclaw-controller 运行中；② Worker 镜像 local/mcuforge-hiclaw-worker:policy-safe-20260902-v2 已构建（见 Install-MCUForge.ps1 说明）；③ 可手动执行 agent_infra\hiclaw\Bootstrap-MCUForgeTeam.ps1 -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess 后再重试。"
 }
+$consumerResponse = Invoke-Higress -Method GET -Uri "$consoleBase/v1/consumers" -Session $session -Body $null
 
 $consumerTokenHashes = foreach ($consumer in @($consumerResponse.data | Where-Object { $_.name -in $allowedConsumers })) {
     foreach ($credential in @($consumer.credentials)) {

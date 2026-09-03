@@ -81,6 +81,31 @@ agent_infra/tool_bridge/research-web-mcp-server/dist/index.js
 
 `dist` 和 `node_modules` 是可再生物，不提交 Git。
 
+### 2.5 准备 MCUForge Worker 镜像（首次必做）
+
+mcuforge Team 的 Worker 依赖两个本地镜像：`local/mcuforge-hiclaw-worker:policy-safe-20260902-v2`
+（HiClaw 官方 `hiclaw-worker` 之上打的策略安全层）与 `local/mcuforge-worker-control:20260902`。
+二者构建源都在仓库内，联网可自动构建；也可用交付包离线导入。
+
+**联网构建（推荐）**：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File `
+  .\agent_infra\hiclaw\worker-image-policy-safe\Build-MCUForgeWorkerImage.ps1
+```
+
+首次会拉取官方基础镜像（约 2-4 GB）与 `python:3.12-alpine`。若你的 HiClaw
+来自其它区域 registry，用 `-BaseImage <你的 hiclaw-worker 镜像>` 覆盖。
+
+**离线导入**（若随交付包提供 tar）：
+
+```powershell
+docker load -i .\mcuforge-hiclaw-images.tar.gz
+```
+
+完成后重跑 `Check-MCUForgeEnvironment.ps1`：两项"MCUForge … 镜像"检查应显示通过，
+若 2.3 阶段曾因缺镜像报失败，此时应已消除。
+
 ## 3. 启动
 
 ### 3.1 推荐：根目录一键启动
@@ -140,8 +165,17 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File `
 
 窗口 C：
 
+> **首次部署顺序**：必须先执行 Bootstrap-MCUForgeTeam.ps1 让 mcuforge Team/Worker 注册，
+> HiClaw 网关才会为 5 个 Worker 生成 key-auth consumer；两个 Configure 脚本会校验这些
+> consumer 是否已存在。若在全新环境（网关无 consumer）下，Configure 脚本也会自动执行
+> 一次 Bootstrap 并等待 consumer 生成（默认最多 120 秒），因此直接按下面顺序执行即可。
+
 ```powershell
 $hiclawEnv = Join-Path $env:USERPROFILE 'hiclaw-manager.env'
+
+pwsh -NoProfile -ExecutionPolicy Bypass -File `
+  .\agent_infra\hiclaw\Bootstrap-MCUForgeTeam.ps1 `
+  -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess
 
 pwsh -NoProfile -ExecutionPolicy Bypass -File `
   .\agent_infra\tool_bridge\stm32-mcp-server\Configure-HiClawProxy.ps1 `
@@ -150,10 +184,6 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File `
 pwsh -NoProfile -ExecutionPolicy Bypass -File `
   .\agent_infra\tool_bridge\research-web-mcp-server\Configure-HiClawResearchProxy.ps1 `
   -HiClawEnvPath $hiclawEnv -EnableWideAgentAccess
-
-pwsh -NoProfile -ExecutionPolicy Bypass -File `
-  .\agent_infra\hiclaw\Bootstrap-MCUForgeTeam.ps1 `
-  -EnableToolBridge -EnableResearchBridge -EnableWideAgentAccess
 ```
 
 ## 4. 验收

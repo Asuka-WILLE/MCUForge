@@ -30,6 +30,15 @@ if ($LASTEXITCODE -ne 0 -or $controllerState -ne "true") {
     throw "HiClaw controller is not running: $Controller"
 }
 
+# Worker 镜像预检：Team manifest 会以 image=$WorkerImage 创建 Worker 容器，
+# 镜像缺失时 hiclaw apply 会失败或长时间卡在 ready 轮询，因此先给清晰指引。
+& docker image inspect $WorkerImage *> $null
+if ($LASTEXITCODE -ne 0) {
+    throw ("Worker image not found: {0}`n" +
+        "请执行 agent_infra\hiclaw\worker-image-policy-safe\Build-MCUForgeWorkerImage.ps1 自动构建；`n" +
+        "或从交付包离线导入：docker load -i .\mcuforge-hiclaw-images.tar.gz。") -f $WorkerImage
+}
+
 function Invoke-HiClaw {
     param([string[]]$Arguments)
     & docker exec $Controller hiclaw @Arguments
