@@ -103,14 +103,6 @@ Invoke-RestMethod http://127.0.0.1:8766/health                   # status ok（R
 | 直接输入 `local/mcuforge-hiclaw-worker:policy-safe-…` 报 `CommandNotFoundException` | 镜像名不是可执行命令 | 检查镜像用 `docker images`，精确判断用 `docker image inspect <镜像名>` |
 | `request returned 500 Internal Server Error …/containers/hiclaw-controller/json`（出现在 Bootstrap 期间） | Docker 引擎瞬时繁忙，但 Team 可能已创建 | 等 30 秒 → `docker ps` 确认容器 Up → `docker exec hiclaw-controller hiclaw get teams mcuforge` 看到 `Phase: Active`、`ReadyWorkers: 4/4` 后重跑第 5 步（Bootstrap 幂等，不会重复建团队） |
 
-### Git 连不上 GitHub（clone / pull / push）
-
-| 现象 | 原因 | 处理 |
-| --- | --- | --- |
-| `https … Recv failure: Connection was reset` | 网络对大包不稳 | `git config --global http.postBuffer 524288000` 后重试；或改用 SSH |
-| `Permission denied (publickey)` | 本机未配置 GitHub SSH key | 生成密钥：`ssh-keygen -t ed25519 -C "你的邮箱"`，把 `~\.ssh\id_ed25519.pub` 内容粘贴到 GitHub → Settings → SSH and GPG keys → New SSH key；再 `ssh -T git@github.com` 验证 |
-| 仓库提示找不到 / 拉下来缺文件 | clone 到了错误仓库 | 交付仓库为 `https://github.com/Asuka-WILLE/MCUForge.git` |
-
 详细步骤、预期输出与更多故障处理见 [运行与排障手册](docs/OPERATIONS.md) 与 [HiClaw 细节手册](agent_infra/hiclaw/README.md)。
 
 ---
