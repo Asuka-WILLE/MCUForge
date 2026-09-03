@@ -1,0 +1,1408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280">
+<title>MCUForge — 面向单片机研发的多 Agent 工程协作基座</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --bg-soft: #0f131c;
+    --card: #11161f;
+    --card-hover: #141a25;
+    --line: rgba(255,255,255,.07);
+    --line-strong: rgba(255,255,255,.12);
+    --text: #e8ecf3;
+    --text-2: #9aa4b5;
+    --text-3: #6b7688;
+    --accent: #5b8cff;
+    --accent-2: #2dd4ff;
+    --grad: linear-gradient(120deg, #5b8cff 0%, #2dd4ff 100%);
+    --green: #34d399;
+    --purple: #a78bfa;
+    --cyan: #22d3ee;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Courier New", monospace;
+    --radius: 16px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 84px; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+    font-size: 17.5px;
+    line-height: 1.8;
+    -webkit-font-smoothing: antialiased;
+    min-width: 1280px;
+  }
+  ::selection { background: rgba(91,140,255,.35); }
+
+  /* ---------- 通用 ---------- */
+  .wrap { width: 1180px; margin: 0 auto; }
+  .section { padding: 110px 0 40px; }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 13.5px;
+    letter-spacing: .14em;
+    color: var(--accent-2);
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  .kicker::before { content: "// "; color: var(--text-3); }
+  h2.title { font-size: 50px; font-weight: 800; letter-spacing: .005em; margin-bottom: 22px; line-height: 1.2; }
+  p.sub { color: var(--text-2); font-size: 21px; line-height: 1.75; max-width: 960px; margin-bottom: 60px; }
+  code.inline {
+    font-family: var(--mono); font-size: .9em;
+    background: rgba(91,140,255,.12); color: #9fc0ff;
+    padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(91,140,255,.18);
+  }
+  .badge {
+    display: inline-block; font-family: var(--mono); font-size: 11px; font-weight: 600;
+    padding: 2px 10px; border-radius: 6px; vertical-align: 2px; white-space: nowrap;
+  }
+  .badge-ok  { color: var(--green); background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.3); }
+  .badge-wip { color: var(--amber); background: rgba(251,191,36,.1); border: 1px solid rgba(251,191,36,.3); }
+
+  /* ---------- 动画（精简：仅一次性淡入） ---------- */
+  .reveal { opacity: 0; transform: translateY(16px); transition: opacity .55s ease, transform .55s ease; }
+  .reveal.visible { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+    html { scroll-behavior: auto; }
+  }
+  .no-anim .reveal { opacity: 1 !important; transform: none !important; transition: none !important; }
+
+  /* ---------- 导航 ---------- */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(11,14,20,.78);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-inner { width: 1180px; margin: 0 auto; height: 64px; display: flex; align-items: center; gap: 28px; }
+  .logo { display: flex; align-items: center; font-weight: 760; font-size: 19px; letter-spacing: .015em; text-decoration: none; color: var(--text); flex: none; }
+  .nav-links { display: flex; gap: 20px; flex: 1; }
+  .nav-links a {
+    color: var(--text-2); text-decoration: none; font-size: 13.5px;
+    transition: color .2s;
+  }
+  .nav-links a:hover { color: var(--text); }
+  .nav-gh {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,.06); border: 1px solid var(--line-strong);
+    color: var(--text); text-decoration: none; font-size: 14px; font-weight: 600;
+    padding: 8px 16px; border-radius: 10px; flex: none;
+    transition: background .2s, border-color .2s;
+  }
+  .nav-gh:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.22); }
+  .nav-gh svg { width: 17px; height: 17px; fill: currentColor; }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    position: relative;
+    padding: 158px 0 80px;
+    overflow: hidden;
+    border-bottom: 1px solid var(--line);
+  }
+  .hero::before, .hero::after {
+    content: ""; position: absolute; border-radius: 50%; filter: blur(120px); pointer-events: none;
+  }
+  .hero::before { width: 640px; height: 640px; left: -180px; top: -220px; background: rgba(91,140,255,.16); }
+  .hero::after  { width: 560px; height: 560px; right: -140px; top: -60px;  background: rgba(34,211,238,.10); }
+  .hero .wrap { position: relative; z-index: 1; }
+  .hero-badge {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-size: 13.5px; color: #a5c4ff;
+    background: rgba(91,140,255,.1);
+    border: 1px solid rgba(91,140,255,.28);
+    border-radius: 999px; padding: 7px 16px;
+    margin-bottom: 28px;
+  }
+  .hero-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); }
+  .hero h1 {
+    font-size: 60px; line-height: 1.18; font-weight: 800; letter-spacing: .01em;
+    margin-bottom: 18px;
+  }
+  .hero h1 .grad {
+    background: var(--grad);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+  }
+  .hero .tagline { font-size: 23px; font-weight: 600; color: var(--text); margin-bottom: 18px; }
+  .hero p.desc { color: var(--text-2); font-size: 16.5px; max-width: 940px; margin-bottom: 36px; }
+  .hero-actions { display: flex; gap: 14px; margin-bottom: 60px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 13px 26px; border-radius: 12px;
+    font-size: 15.5px; font-weight: 600; text-decoration: none;
+    transition: transform .15s ease, box-shadow .2s, background .2s, border-color .2s;
+  }
+  .btn-primary { background: var(--grad); color: #06121f; box-shadow: 0 6px 22px rgba(45,180,255,.28); }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(45,180,255,.38); }
+  .btn-ghost { color: var(--text); border: 1px solid var(--line-strong); background: rgba(255,255,255,.03); }
+  .btn-ghost:hover { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.24); }
+  .btn svg { width: 17px; height: 17px; fill: currentColor; }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: rgba(255,255,255,.02);
+    overflow: hidden;
+  }
+  .stat { padding: 24px 28px; border-left: 1px solid var(--line); }
+  .stat:first-child { border-left: none; }
+  .stat .num { font-size: 34px; font-weight: 800; font-family: var(--mono); color: var(--text); }
+  .stat .num em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .stat .lbl { color: var(--text-3); font-size: 13.5px; margin-top: 2px; }
+
+  /* ---------- 痛点 ---------- */
+  .pain-grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: start; }
+  .pain-list { display: flex; flex-direction: column; gap: 13px; }
+  .pain-item {
+    display: flex; gap: 14px; align-items: flex-start;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 13px; padding: 16px 20px;
+    transition: border-color .2s;
+  }
+  .pain-item:hover { border-color: rgba(248,113,113,.35); }
+  .pain-item .x {
+    flex: none; width: 24px; height: 24px; border-radius: 7px; margin-top: 3px;
+    background: rgba(248,113,113,.12); color: #f87171;
+    display: grid; place-items: center; font-size: 13px; font-weight: 700;
+    border: 1px solid rgba(248,113,113,.25);
+  }
+  .pain-item b { display: block; font-size: 20px; font-weight: 700; }
+  .pain-item span { color: var(--text-2); font-size: 16px; line-height: 1.75; }
+  .shot-card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .shot-card img { display: block; width: 100%; height: auto; }
+  .shot-card .cap {
+    padding: 15px 20px; color: var(--text-2); font-size: 13.5px;
+    border-top: 1px solid var(--line);
+    display: flex; gap: 9px; align-items: center;
+  }
+  .shot-card .cap .tag {
+    font-family: var(--mono); font-size: 11.5px; color: #f87171;
+    background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.22);
+    border-radius: 6px; padding: 2px 8px; flex: none;
+  }
+
+  /* ---------- 居中金句 ---------- */
+  .motto-wrap { margin: 90px auto 0; max-width: 1020px; padding: 48px 60px;
+    background: rgba(91,140,255,.06); border: 1px solid rgba(91,140,255,.22);
+    border-radius: 22px; text-align: center; }
+  .motto {
+    font-size: 36px; font-weight: 700; line-height: 1.55;
+    color: var(--text-2); letter-spacing: .005em; margin: 0;
+  }
+  .motto b { color: var(--text); }
+  .motto .hl { background: var(--grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+
+  /* ---------- 左文右演示大区块 ---------- */
+  .showcase { display: grid; grid-template-columns: .85fr 1.15fr; gap: 60px; align-items: center; margin-bottom: 60px; }
+  .sc-text h3 { font-size: 32px; font-weight: 800; line-height: 1.35; margin-bottom: 16px; }
+  .sc-text h3 em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .sc-text p { color: var(--text-2); font-size: 15.5px; line-height: 1.85; margin-bottom: 18px; }
+  .sc-text p b { color: var(--text); }
+  .sc-points { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .sc-points li { color: var(--text-2); font-size: 14px; padding-left: 24px; position: relative; line-height: 1.7; }
+  .sc-points li::before { content: "→"; position: absolute; left: 0; color: var(--accent-2); font-family: var(--mono); }
+  .sc-points li b { color: var(--text); }
+  .sc-visual { position: relative; }
+  .sc-visual::before {
+    content: ""; position: absolute; inset: -30px -40px;
+    background:
+      radial-gradient(420px 280px at 30% 20%, rgba(91,140,255,.18), transparent 70%),
+      radial-gradient(420px 280px at 75% 80%, rgba(167,139,250,.13), transparent 70%);
+    filter: blur(10px); pointer-events: none;
+  }
+  .chat {
+    position: relative; z-index: 1;
+    background: rgba(17,22,31,.92);
+    border: 1px solid rgba(120,150,255,.22);
+    border-radius: 18px; padding: 26px 24px;
+    display: flex; flex-direction: column; gap: 14px;
+    box-shadow: 0 24px 70px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.03) inset;
+  }
+  .chat .chat-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+    font-family: var(--mono); font-size: 11.5px; color: var(--text-3);
+  }
+  .chat .chat-head i { width: 9px; height: 9px; border-radius: 50%; display: block; }
+  .chat .chat-head .room { margin-left: 6px; color: #9fb6e8; background: rgba(91,140,255,.1); border: 1px solid rgba(91,140,255,.25); padding: 1px 10px; border-radius: 999px; }
+  .msg-user {
+    align-self: flex-end; max-width: 82%;
+    background: var(--grad); color: #07131f;
+    border-radius: 14px 14px 4px 14px; padding: 10px 16px;
+    font-size: 13.5px; font-weight: 600; line-height: 1.6;
+  }
+  .msg-agent {
+    align-self: flex-start; max-width: 90%;
+    background: rgba(255,255,255,.045); border: 1px solid var(--line-strong);
+    border-radius: 14px 14px 14px 4px; padding: 13px 17px;
+    font-size: 13px; color: var(--text-2); line-height: 1.7;
+  }
+  .msg-agent .who { display: block; font-family: var(--mono); font-size: 11px; color: #8fb0ff; font-weight: 700; margin-bottom: 6px; }
+  .msg-agent .draft {
+    display: inline-block; margin-top: 8px; font-family: var(--mono); font-size: 10.5px;
+    color: var(--amber); background: rgba(251,191,36,.09); border: 1px solid rgba(251,191,36,.3);
+    padding: 1px 9px; border-radius: 6px;
+  }
+  .msg-system {
+    align-self: center; font-family: var(--mono); font-size: 12px; font-weight: 600;
+    color: var(--green); background: rgba(52,211,153,.09);
+    border: 1px solid rgba(52,211,153,.3); padding: 5px 16px; border-radius: 999px;
+  }
+
+  /* ---------- 核心功能 ---------- */
+  .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; }
+  .feat {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 30px 28px 28px;
+    transition: transform .2s ease, border-color .2s, background .2s;
+  }
+  .feat:hover { transform: translateY(-3px); border-color: var(--line-strong); background: var(--card-hover); }
+  .feat::before {
+    content: ""; display: block; width: 30px; height: 3px; border-radius: 2px;
+    background: var(--grad); margin-bottom: 18px;
+  }
+  .feat .f-num {
+    font-family: var(--mono); font-size: 20px; font-weight: 800;
+    letter-spacing: .04em; color: var(--accent-2); margin-bottom: 14px;
+  }
+  .feat h3 { font-size: 25px; font-weight: 750; margin-bottom: 14px; letter-spacing: .005em; }
+  .feat p { color: var(--text-2); font-size: 16.5px; line-height: 1.9; }
+
+  /* ---------- 架构 ---------- */
+  .arch-box {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 34px 34px 20px;
+    margin-bottom: 26px;
+  }
+  .arch-box svg { display: block; width: 100%; height: auto; }
+  .principles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .principle {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 13px; padding: 20px 22px;
+  }
+  .principle::before {
+    content: ""; display: block; width: 26px; height: 3px; border-radius: 2px;
+    background: var(--grad); margin-bottom: 14px;
+  }
+  .principle b { display: block; font-size: 19px; font-weight: 700; margin-bottom: 8px; }
+  .principle span { color: var(--text-2); font-size: 15.5px; line-height: 1.8; }
+
+  /* ---------- 方案迁移 ---------- */
+  .platform-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-bottom: 24px; }
+  .platform {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 28px; position: relative;
+    transition: border-color .2s;
+  }
+  .platform:hover { border-color: var(--line-strong); }
+  .platform .pf-badge {
+    position: absolute; top: 24px; right: 24px;
+    font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+    padding: 4px 12px; border-radius: 7px;
+  }
+  .pf-ok  { color: var(--green); background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.3); }
+  .pf-cur { color: var(--accent-2); background: rgba(45,212,255,.08); border: 1px solid rgba(45,212,255,.3); }
+  .platform .pf-chip {
+    font-family: var(--mono); font-size: 12px; color: var(--accent-2);
+    letter-spacing: .08em; margin-bottom: 10px; display: block;
+  }
+  .platform h3 { font-size: 26px; font-weight: 800; margin-bottom: 8px; letter-spacing: .005em; }
+  .platform .pf-mcu { color: var(--text-2); font-size: 15.5px; margin-bottom: 20px; font-family: var(--mono); }
+  .platform ul { list-style: none; display: flex; flex-direction: column; gap: 14px; }
+  .platform li { color: var(--text-2); font-size: 16px; padding-left: 26px; position: relative; line-height: 1.8; }
+  .platform li::before { content: "▸"; position: absolute; left: 2px; color: var(--accent-2); font-size: 13px; top: 2px; }
+  .platform li b { color: var(--text); font-weight: 700; }
+  .mig-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; }
+  .mig-card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 24px;
+  }
+  .mig-card h3 { font-size: 22px; font-weight: 700; margin-bottom: 16px; }
+  .mig-card h3::before {
+    content: ""; display: block; width: 30px; height: 3px; border-radius: 2px;
+    background: var(--grad); margin-bottom: 16px;
+  }
+  .mig-card p { color: var(--text-2); font-size: 16.5px; line-height: 1.9; margin-bottom: 12px; }
+  .mig-card .use-list { list-style: none; display: flex; flex-direction: column; gap: 9px; margin-top: 4px; }
+  .mig-card .use-list li { font-size: 15.5px; color: var(--text-2); padding-left: 24px; position: relative; line-height: 1.75; }
+  .mig-card .use-list li::before { content: "✓"; position: absolute; left: 0; color: var(--green); font-size: 11px; }
+  .mig-card .use-list.li-plus li::before { content: "+"; color: var(--amber); font-weight: 700; }
+  .mig-card .use-list.li-limit li::before { content: "✓"; color: var(--green); font-size: 11px; }
+  .mig-card .use-list.li-limit li b { color: #b9d2ff; font-weight: 600; }
+
+  /* ---------- 角色与技能对照 ---------- */
+  .namebar {
+    background: linear-gradient(120deg, rgba(91,140,255,.09), rgba(45,212,255,.05));
+    border: 1px solid rgba(91,140,255,.25);
+    border-radius: 14px; padding: 18px 24px;
+    margin-bottom: 26px;
+    color: var(--text-2); font-size: 14px; line-height: 1.8;
+  }
+  .namebar b { color: #b9d2ff; }
+  .map-table {
+    width: 100%; border-collapse: separate; border-spacing: 0;
+    table-layout: fixed; background: var(--card);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .map-table th, .map-table td {
+    padding: 26px 24px; text-align: center; vertical-align: middle;
+    border-left: 1px solid var(--line); border-top: 1px solid var(--line);
+    font-size: 14px; line-height: 1.7;
+  }
+  .map-table th:first-child, .map-table td:first-child { border-left: none; }
+  .map-table tbody tr:first-child td { border-top: none; }
+  .map-table thead th {
+    background: rgba(255,255,255,.03); color: var(--text-3);
+    font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    padding: 18px 24px;
+  }
+  .map-table tbody tr:hover { background: rgba(91,140,255,.035); }
+  .map-table .cell { color: var(--text-2); }
+  .skill-tag {
+    font-family: var(--mono); font-size: 12.5px; color: #9fc0ff;
+    background: rgba(91,140,255,.1); border: 1px solid rgba(91,140,255,.2);
+    padding: 2px 9px; border-radius: 6px; display: inline-block; margin: 2px 3px 4px 0; white-space: nowrap;
+  }
+  .skill-tag .v { color: var(--green); font-size: 10.5px; }
+  .art-tag { color: #a7e8cd; font-size: 13.5px; }
+  .map-table .badge { font-size: 13.5px; padding: 5px 14px; font-weight: 700; }
+  .map-note { margin-top: 14px; color: var(--text-2); font-size: 13.5px; display: flex; gap: 9px; align-items: flex-start; line-height: 1.7; }
+  .map-note .pin { color: var(--amber); flex: none; margin-top: 2px; }
+
+  /* ---------- 故障闭环 ---------- */
+  .loop-scene {
+    background: linear-gradient(120deg, rgba(91,140,255,.09), rgba(45,212,255,.05));
+    border: 1px solid rgba(91,140,255,.25);
+    border-radius: 14px; padding: 18px 24px; margin-bottom: 20px;
+    color: var(--text-2); font-size: 14px; line-height: 1.8;
+  }
+  .loop-scene .task-id { font-family: var(--mono); color: var(--accent-2); font-weight: 700; }
+  .pipe { position: relative; margin: 44px 0 20px; padding: 0 30px; }
+  .pipe-line {
+    position: absolute; top: 27px; left: 90px; right: 90px; height: 3px;
+    background: linear-gradient(90deg, #5b8cff, #2dd4ff);
+    border-radius: 2px;
+  }
+  .pipe-line::after {
+    content: ""; position: absolute; right: -12px; top: -5.5px;
+    border-left: 13px solid #2dd4ff;
+    border-top: 7px solid transparent; border-bottom: 7px solid transparent;
+  }
+  .pipe-steps { display: grid; grid-template-columns: repeat(6, 1fr); position: relative; }
+  .pipe-step { text-align: center; padding: 0 12px; }
+  .pipe-dot {
+    width: 56px; height: 56px; border-radius: 50%; margin: 0 auto 18px;
+    background: var(--bg); border: 3px solid #5b8cff;
+    display: grid; place-items: center;
+    font-family: var(--mono); font-size: 17px; font-weight: 800; color: var(--accent-2);
+    position: relative; z-index: 1;
+    box-shadow: 0 0 0 7px rgba(91,140,255,.13);
+  }
+  .pipe-step:nth-child(6) .pipe-dot { border-color: var(--green); box-shadow: 0 0 0 7px rgba(52,211,153,.12); }
+  .pipe-step:nth-child(6) .pipe-dot { color: var(--green); }
+  .pipe-step b { display: block; font-size: 16.5px; font-weight: 750; margin-bottom: 7px; }
+  .pipe-step span { color: var(--text-3); font-size: 12.5px; line-height: 1.65; display: block; }
+  .incident-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin: 36px 0 26px; }
+  .incident {
+    background: var(--card); border: 1px solid rgba(248,113,113,.22);
+    border-radius: 14px; padding: 22px 24px;
+    transition: border-color .2s;
+  }
+  .incident:hover { border-color: rgba(248,113,113,.4); }
+  .incident .i-head {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+  }
+  .incident .i-warn {
+    flex: none; width: 30px; height: 30px; border-radius: 9px;
+    background: rgba(248,113,113,.12); border: 1px solid rgba(248,113,113,.3);
+    display: grid; place-items: center; font-size: 14px;
+  }
+  .incident h3 { font-size: 22px; font-weight: 700; color: #fca5a5; }
+  .incident .i-row { display: flex; gap: 10px; font-size: 15.5px; line-height: 1.8; margin-bottom: 14px; align-items: flex-start; }
+  .incident .i-row .k { flex: none; margin-top: 3px; }
+  .incident .i-row .k {
+    flex: none; font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+    padding: 1px 7px; border-radius: 5px; margin-top: 3px; height: fit-content;
+  }
+  .k-fire { color: #fca5a5; background: rgba(248,113,113,.12); }
+  .k-do   { color: #7dd3fc; background: rgba(125,211,252,.1); }
+  .k-out  { color: #86efac; background: rgba(134,239,172,.1); }
+  .incident .k { display: inline-block; min-width: 56px; text-align: center; padding: 4px 12px; border-radius: 6px; font-family: var(--mono); font-size: 12px; font-weight: 800; letter-spacing: .04em; flex: none; margin-top: 2px; }
+  .incident p { color: var(--text-2); }
+  .loop-foot {
+    background: var(--card); border: 1px solid var(--line); border-radius: 13px;
+    padding: 16px 22px; display: flex; align-items: center; gap: 14px;
+    color: var(--text-2); font-size: 13.5px;
+  }
+  .loop-foot .play {
+    flex: none; width: 34px; height: 34px; border-radius: 50%;
+    background: var(--grad); display: grid; place-items: center;
+    color: #06121f; font-size: 13px; font-weight: 800;
+  }
+
+  /* ---------- 工程化矩阵 ---------- */
+  /* ---------- 工程化能力矩阵（水平条目列表） ---------- */
+  .eng-list { display: flex; flex-direction: column; }
+  .eng {
+    display: grid; grid-template-columns: 64px 280px 1fr 120px;
+    gap: 32px; align-items: center;
+    padding: 32px 16px; background: transparent;
+    border: none; border-top: 1px solid var(--line); border-radius: 0;
+    transition: background .2s ease, padding-left .2s ease;
+  }
+  .eng:last-child { border-bottom: 1px solid var(--line); }
+  .eng:hover { background: rgba(91,140,255,.035); padding-left: 28px; }
+  .eng .e-num {
+    font-family: var(--mono); font-size: 26px; font-weight: 800;
+    color: var(--text-3); letter-spacing: .04em;
+  }
+  .eng h3 { font-size: 24px; font-weight: 750; line-height: 1.4; margin: 0; }
+  .eng p { color: var(--text-2); font-size: 16.5px; line-height: 1.9; margin: 0; }
+  .eng-foot {
+    margin-top: 22px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 13px; padding: 16px 22px; text-align: center;
+    color: var(--text-2); font-size: 14px;
+  }
+  .eng-foot b { color: var(--text); }
+
+  /* ---------- 工作流实录 ---------- */
+  /* ---------- B 站视频卡片 ---------- */
+  .demo-video {
+    position: relative;
+    display: grid; grid-template-columns: 1.05fr 1.35fr;
+    gap: 50px; align-items: center;
+    margin-top: 70px;
+    padding: 48px 52px;
+    background: linear-gradient(135deg, rgba(91,140,255,.16) 0%, rgba(34,211,238,.07) 55%, rgba(167,139,250,.10) 100%);
+    border: 1px solid rgba(91,140,255,.32);
+    border-radius: 22px;
+    overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+    transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+  }
+  .demo-video:hover { transform: translateY(-3px); border-color: rgba(91,140,255,.55); box-shadow: 0 20px 50px rgba(91,140,255,.18); }
+  .demo-video::before {
+    content: ""; position: absolute; inset: -60px -80px;
+    background:
+      radial-gradient(420px 320px at 20% 30%, rgba(91,140,255,.20), transparent 70%),
+      radial-gradient(360px 280px at 85% 80%, rgba(34,211,238,.16), transparent 70%);
+    filter: blur(20px); pointer-events: none;
+  }
+  .demo-video > * { position: relative; z-index: 1; }
+  .demo-video .v-tag {
+    display: inline-block; font-family: var(--mono); font-size: 12.5px; font-weight: 700;
+    color: var(--accent-2); background: rgba(45,212,255,.12);
+    border: 1px solid rgba(45,212,255,.32); padding: 4px 12px;
+    border-radius: 6px; margin-bottom: 18px; letter-spacing: .04em;
+  }
+  .demo-video-text h3 { font-size: 40px; font-weight: 800; line-height: 1.32; margin-bottom: 22px; letter-spacing: .005em; }
+  .demo-video-text h3 em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .demo-video-text p { color: var(--text-2); font-size: 17.5px; line-height: 1.9; margin-bottom: 28px; }
+  .bili-btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--grad); color: #06121f; font-weight: 700; font-size: 16px;
+    padding: 14px 30px; border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(45,180,255,.3);
+    transition: transform .15s ease, box-shadow .2s;
+  }
+  .demo-video:hover .bili-btn { transform: translateY(-1px); box-shadow: 0 12px 32px rgba(45,180,255,.4); }
+  .bili-btn svg { width: 20px; height: 20px; fill: currentColor; }
+  .bili-meta { display: inline-flex; align-items: center; gap: 8px; color: var(--text-3); font-family: var(--mono); font-size: 12.5px; margin-left: 16px; }
+
+  .demo-video-visual {
+    position: relative;
+    aspect-ratio: 16/9;
+    border-radius: 16px;
+    background:
+      radial-gradient(circle at 30% 30%, rgba(91,140,255,.20), transparent 60%),
+      linear-gradient(135deg, #161b28, #0a0e17);
+    border: 1px solid rgba(91,140,255,.28);
+    overflow: hidden;
+    display: grid; place-items: center;
+    box-shadow: 0 20px 50px rgba(0,0,0,.45);
+  }
+  .demo-video-visual::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,.02) 0 1px, transparent 1px 4px);
+    opacity: .4;
+  }
+  .demo-video-visual .play {
+    position: relative; z-index: 1;
+    width: 86px; height: 86px; border-radius: 50%;
+    background: rgba(255,255,255,.95);
+    box-shadow: 0 12px 30px rgba(0,0,0,.4), 0 0 0 12px rgba(91,140,255,.22);
+    transition: transform .25s;
+    display: grid; place-items: center;
+  }
+  .demo-video-visual .play::after {
+    content: ""; display: block;
+    width: 0; height: 0;
+    border-left: 24px solid #06121f;
+    border-top: 14px solid transparent;
+    border-bottom: 14px solid transparent;
+    margin-left: 7px;
+  }
+  .demo-video:hover .demo-video-visual .play { transform: scale(1.08); }
+  .demo-video-visual .v-meta {
+    position: absolute; bottom: 18px; left: 22px; right: 22px;
+    display: flex; justify-content: space-between; align-items: center;
+    color: rgba(255,255,255,.85); font-family: var(--mono); font-size: 12.5px;
+    letter-spacing: .04em;
+  }
+  .demo-video-visual .v-meta .bili { color: #00AEEC; font-weight: 800; }
+  .demo-video-visual .v-meta .dur { color: rgba(255,255,255,.65); }
+
+  /* ---------- 运行实录（左右交错） ---------- */
+  .story-row {
+    display: grid; grid-template-columns: .68fr 1.42fr;
+    gap: 52px; align-items: center;
+    padding: 60px 0;
+    border-top: 1px solid var(--line);
+  }
+  .story-row:last-of-type { border-bottom: 1px solid var(--line); }
+  .story-row.flip .story-text { order: 2; }
+  .story-tag {
+    display: inline-block; font-family: var(--mono); font-size: 12px; font-weight: 700;
+    color: var(--accent-2); background: rgba(45,212,255,.1);
+    border: 1px solid rgba(45,212,255,.3); padding: 3px 12px;
+    border-radius: 6px; margin-bottom: 18px; letter-spacing: .04em;
+  }
+  .story-text h3 { font-size: 36px; font-weight: 800; line-height: 1.32; margin-bottom: 22px; letter-spacing: .005em; }
+  .story-text h3 em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .story-text p { color: var(--text-2); font-size: 17.5px; line-height: 1.9; }
+  .story-text p b { color: var(--text); font-weight: 700; }
+  .story-text .bullets { list-style: none; display: flex; flex-direction: column; gap: 10px; margin-top: 22px; }
+  .story-text .bullets li { color: var(--text-2); font-size: 15.5px; padding-left: 24px; position: relative; line-height: 1.75; }
+  .story-text .bullets li::before { content: "→"; position: absolute; left: 0; color: var(--accent-2); font-family: var(--mono); }
+  .story-shot { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--card); cursor: zoom-in; position: relative; isolation: isolate; }
+  .story-shot img { display: block; width: 100%; height: auto; transition: filter .25s; }
+  .story-shot.focus-evidence {
+    aspect-ratio: 16 / 9;
+    border-color: rgba(91,140,255,.24);
+    box-shadow: 0 18px 48px rgba(0,0,0,.24);
+  }
+  .story-shot.focus-evidence img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scale(1.65);
+  }
+  .story-row .story-shot.focus-evidence img { transform: scale(1.85); }
+  .story-shot.focus-top-left img { transform-origin: left top; object-position: left top; }
+  .story-shot.focus-left-center img { transform-origin: left center; object-position: left center; }
+  .story-shot.focus-center img { transform-origin: center center; object-position: center center; }
+  .story-shot.focus-bottom-left img { transform-origin: left bottom; object-position: left bottom; }
+  .story-row .story-shot.focus-firmware img {
+    transform: scale(2.15);
+    transform-origin: 29% 66%;
+    object-position: center center;
+  }
+  .story-row .story-shot.focus-verification img {
+    transform: scale(4);
+    transform-origin: 10% 90%;
+    object-position: center center;
+  }
+  .story-shot:hover img { filter: brightness(1.05); }
+  .story-shot::after {
+    content: "点击查看完整截图"; position: absolute; right: 12px; bottom: 12px;
+    font-family: var(--mono); font-size: 11.5px; color: #b9d2ff;
+    background: rgba(11,14,20,.72); border: 1px solid rgba(91,140,255,.4);
+    padding: 4px 10px; border-radius: 999px; backdrop-filter: blur(6px);
+    opacity: 0; transition: opacity .2s;
+  }
+  .story-shot:hover::after { opacity: 1; }
+  .story-shot.focus-evidence::after {
+    content: "已聚焦主要内容 · 点击看完整截图";
+    opacity: 1;
+  }
+
+  /* ---------- Lightbox 放大预览 ---------- */
+  .lightbox {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(5,8,14,.88); backdrop-filter: blur(8px);
+    display: none; align-items: center; justify-content: center;
+    padding: 40px; cursor: zoom-out;
+  }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: 96%; max-height: 92%; border-radius: 12px; box-shadow: 0 30px 80px rgba(0,0,0,.6); border: 1px solid var(--line-strong); }
+  .lightbox-close {
+    position: fixed; top: 24px; right: 28px; width: 44px; height: 44px;
+    border-radius: 50%; background: rgba(255,255,255,.08); border: 1px solid var(--line-strong);
+    color: var(--text); font-size: 22px; cursor: pointer; display: grid; place-items: center;
+    transition: background .2s, transform .15s;
+  }
+  .lightbox-close:hover { background: rgba(255,255,255,.18); transform: scale(1.08); }
+
+  /* ---------- 总结页（上手只要 5 分钟） ---------- */
+  .summary-card {
+    margin: 110px 0 0;
+    padding: 56px 60px;
+    background: linear-gradient(135deg, rgba(91,140,255,.18) 0%, rgba(34,211,238,.08) 55%, rgba(167,139,250,.12) 100%);
+    border: 1px solid rgba(91,140,255,.32); border-radius: 24px;
+    position: relative; overflow: hidden;
+  }
+  .summary-card::before {
+    content: ""; position: absolute; inset: -60px -80px;
+    background:
+      radial-gradient(420px 320px at 15% 20%, rgba(91,140,255,.22), transparent 70%),
+      radial-gradient(360px 280px at 90% 90%, rgba(34,211,238,.18), transparent 70%);
+    filter: blur(20px); pointer-events: none;
+  }
+  .summary-card > * { position: relative; z-index: 1; }
+  .summary-card .kicker { margin-bottom: 16px; }
+  .summary-card h3 { font-size: 42px; font-weight: 800; line-height: 1.32; margin-bottom: 18px; letter-spacing: .005em; }
+  .summary-card h3 em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .summary-card > p { color: var(--text-2); font-size: 19px; line-height: 1.9; max-width: 880px; margin-bottom: 40px; }
+  .summary-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 44px; }
+  .summary-step {
+    background: rgba(11,14,20,.6); border: 1px solid var(--line-strong);
+    border-radius: 14px; padding: 22px 20px;
+    display: flex; flex-direction: column;
+  }
+  .summary-step .ss-n { font-family: var(--mono); font-size: 13px; color: var(--accent-2); font-weight: 700; margin-bottom: 10px; letter-spacing: .04em; }
+  .summary-step b { display: block; font-size: 18px; font-weight: 700; margin-bottom: 8px; line-height: 1.4; }
+  .summary-step span { color: var(--text-2); font-size: 14.5px; line-height: 1.7; }
+  .summary-step code { display: block; margin-top: auto; padding-top: 14px; font-family: var(--mono); font-size: 12.5px; color: #9fc0ff; background: rgba(91,140,255,.08); padding: 10px 12px; border-radius: 5px; word-break: break-all; line-height: 1.5; }
+  .summary-step code::before { content: "PS> "; color: var(--accent-2); }
+  .summary-actions { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+  .summary-actions .btn-primary { font-size: 17px; padding: 16px 32px; }
+  .summary-actions .bili-btn { font-size: 17px; padding: 16px 30px; }
+
+  .story-wide { padding: 60px 0; border-top: 1px solid var(--line); }
+  .story-wide:last-of-type { border-bottom: 1px solid var(--line); }
+  .story-wide-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .story-wide h3 { font-size: 36px; font-weight: 800; line-height: 1.32; margin: 0; letter-spacing: .005em; }
+  .story-wide h3 em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .story-wide p { color: var(--text-2); font-size: 17.5px; line-height: 1.9; margin-bottom: 28px; max-width: 1020px; }
+  .story-wide p b { color: var(--text); }
+
+  /* ---------- 安全 + 快速开始 ---------- */
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+  .sec-list { display: flex; flex-direction: column; gap: 12px; }
+  .sec-item {
+    display: flex; gap: 13px; align-items: flex-start;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 15px 19px;
+  }
+  .sec-item .ok {
+    flex: none; width: 22px; height: 22px; border-radius: 50%; margin-top: 3px;
+    background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.3);
+    color: var(--green); display: grid; place-items: center; font-size: 11px;
+  }
+  .sec-item b { font-size: 14.5px; font-weight: 650; display: block; }
+  .sec-item span { color: var(--text-2); font-size: 13px; }
+  .terminal {
+    background: #0a0d13; border: 1px solid var(--line-strong);
+    border-radius: var(--radius); overflow: hidden;
+    font-family: var(--mono); font-size: 13.5px;
+  }
+  .terminal .bar {
+    display: flex; align-items: center; gap: 7px;
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+    background: rgba(255,255,255,.02);
+  }
+  .terminal .bar i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+  .terminal .bar .r { background: #f87171; } .terminal .bar .y { background: #fbbf24; } .terminal .bar .g { background: #34d399; }
+  .terminal .bar em { font-style: normal; color: var(--text-3); font-size: 12px; margin-left: 8px; }
+  .terminal pre { padding: 20px 22px; line-height: 1.95; color: #c9d4e5; overflow-x: auto; }
+  .terminal .cmt { color: #5b6678; }
+  .terminal .cmd { color: #e8ecf3; }
+  .terminal .cmd::before { content: "PS> "; color: var(--accent-2); }
+  .terminal .arg { color: #8b95a8; }
+  .prereq { margin-top: 16px; color: var(--text-3); font-size: 13px; line-height: 1.8; }
+  .prereq b { color: var(--text-2); }
+
+  /* ---------- Footer ---------- */
+  footer { border-top: 1px solid var(--line); margin-top: 96px; padding: 40px 0 48px; }
+  .foot-inner { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+  .foot-left { display: flex; align-items: center; gap: 12px; }
+  .foot-left b { font-size: 15px; }
+  .foot-meta { color: var(--text-3); font-size: 13px; text-align: right; }
+  .foot-meta a { color: var(--text-2); text-decoration: none; }
+  .foot-meta a:hover { color: var(--text); }
+</style>
+</head>
+<body>
+
+<!-- ============ 导航 ============ -->
+<nav>
+  <div class="nav-inner">
+    <a class="logo" href="#top">
+      MCUForge
+    </a>
+    <div class="nav-links">
+      <a href="#intro">简介</a>
+      <a href="#features">核心功能</a>
+      <a href="#architecture">架构</a>
+      <a href="#migration">方案迁移</a>
+      <a href="#roles">角色与技能</a>
+      <a href="#loop">故障闭环</a>
+      <a href="#engineering">工程化</a>
+      <a href="#workflow">运行实录</a>
+      <a href="#quickstart">快速开始</a>
+    </div>
+    <a class="nav-gh" href="https://github.com/Asuka-WILLE/MCUForge" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</nav>
+
+<!-- ============ Hero ============ -->
+<header class="hero" id="top">
+  <div class="wrap">
+    <div class="hero-badge reveal"><span class="dot"></span>世界人工智能开源大赛 · Agent Infra 新智基座赛道 参赛作品</div>
+    <h1 class="reveal">MCUForge<br><span class="grad">让 AI 按工程流程接手单片机项目</span></h1>
+    <div class="tagline reveal">面向单片机研发的多 Agent 工程协作基座</div>
+    <p class="desc reveal">
+      MCUForge 基于 HiClaw / AgentTeams，把单片机开发拆解为<b>需求、资料、固件、验证、协调</b>五类职责。
+      用户只需描述目标，系统先形成可修改的工程草案，明确确认后才进入合同冻结、资料检索、补丁提案、真实构建与证据归档。
+      同一套基座已在<b>两套硬件配置</b>上完成验证：从 STM32H723 轮控安全闭环（UM10550 Target），迁移到 CtrBoard-H7 的 BMI088 六轴 IMU 显示系统——
+      基座零改动，只换场景层配置。它解决的不是"让 AI 多写一些代码"，而是让 AI 按工程流程<b>安全地接手已有 MCU 项目</b>。
+    </p>
+    <div class="hero-actions reveal">
+      <a class="btn btn-primary" href="https://github.com/Asuka-WILLE/MCUForge" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        查看开源仓库
+      </a>
+      <a class="btn btn-ghost" href="#migration">查看方案迁移 ↓</a>
+    </div>
+    <div class="stats reveal">
+      <div class="stat"><div class="num"><em>2</em> 套硬件配置</div><div class="lbl">两块开发板真实跑通：H723 轮控闭环 → CtrBoard-H7 IMU 显示</div></div>
+      <div class="stat"><div class="num"><em>5</em> 类 Agent</div><div class="lbl">需求 / 资料 / 固件 / 验证 / 协调，各司其职、边界互不越界</div></div>
+      <div class="stat"><div class="num"><em>18</em>+ Skill</div><div class="lbl">统一 stm32-* 命名，SemVer + Registry 生命周期治理</div></div>
+      <div class="stat"><div class="num"><em>8</em> 项工程化</div><div class="lbl">采集 / 审计 / 可观测 / 恢复 / 发布 / 回滚 / 运维 / 灾备</div></div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ 简介与痛点 ============ -->
+<section class="section" id="intro">
+  <div class="wrap">
+    <div class="kicker reveal">The Problem</div>
+    <h2 class="title reveal">它解决什么问题</h2>
+    <p class="sub reveal">传统 AI 辅助 MCU 开发并不缺代码生成能力，缺的是工程纪律。以下失败模式在真实项目中反复出现：</p>
+    <div class="pain-grid">
+      <div class="pain-list">
+        <div class="pain-item reveal"><span class="x">✕</span><div><b>误解需求，直接改源码</b><span>未经确认就修改工程文件，甚至越过用户设定的边界。</span></div></div>
+        <div class="pain-item reveal"><span class="x">✕</span><div><b>测试策略失衡</b><span>小改动反复跑昂贵测试，大问题却没有独立复测。</span></div></div>
+        <div class="pain-item reveal"><span class="x">✕</span><div><b>逻辑堆进 main.c</b><span>缺少模块化、接口与回归意识，工程越来越难维护。</span></div></div>
+        <div class="pain-item reveal"><span class="x">✕</span><div><b>知识不留痕</b><span>每轮重新阅读芯片手册，来源、版本与结论没有沉淀。</span></div></div>
+        <div class="pain-item reveal"><span class="x">✕</span><div><b>过程黑箱</b><span>长任务没有阶段汇报，分不清 Agent 在工作、等待还是卡死。</span></div></div>
+        <div class="pain-item reveal"><span class="x">✕</span><div><b>结果虚报</b><span>把"已生成补丁"当"已落地"，用静态检查冒充真实构建与硬件验证。</span></div></div>
+      </div>
+      <div class="reveal">
+        <div class="shot-card">
+          <img src="assets/pain-ai.png" alt="传统 AI 辅助开发中的典型误解现场">
+          <div class="cap"><span class="tag">REAL CASE</span>真实踩坑记录：AI 理解偏差导致上位机与固件的精度语义不一致，改动扩散到 2 个文件</div>
+        </div>
+        <p style="color:var(--text-3); font-size:13.5px; margin-top:14px;">
+          MCUForge 用<b style="color:var(--text-2)">需求确认门、角色分工、共享状态、受控 MCP、补丁白名单、独立验证、实时进度与自动恢复</b>逐项处理这些问题。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 核心功能 ============ -->
+<section class="section" id="features">
+  <div class="wrap">
+    <div class="kicker reveal">Core Features</div>
+    <h2 class="title reveal">核心功能</h2>
+    <p class="sub reveal">六个机制组成完整闭环：从需求冻结到证据归档，每一步都有角色负责、有边界约束、有产物可查。</p>
+
+    <div class="showcase reveal">
+      <div class="sc-text">
+        <h3>先对齐，<br>再动手。</h3>
+        <p>需求确认门是 MCUForge 的第一道闸：<b>未确认的合同，永远到不了编码角色。</b></p>
+        <ul class="sc-points">
+          <li>用户用自然语言描述目标，无需规范提示词</li>
+          <li>Lead 返回 <b>INTAKE_DRAFT 工程草案</b>，可反复修改</li>
+          <li>只有回复"确认执行"才冻结合同、正式派工</li>
+        </ul>
+      </div>
+      <div class="sc-visual">
+        <div class="chat">
+          <div class="chat-head"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><span class="room"># Project: mc02-imu-display</span></div>
+          <div class="msg-user">请为 MC02 开发板搭建 BMI088 六轴 IMU 显示系统，加速度和角速度实时刷在 TFT 上，我有芯片手册和板卡资料。</div>
+          <div class="msg-agent"><span class="who">Lead · INTAKE_DRAFT</span>已形成工程草案：① 需求合同（显示内容 / 刷新率 / 数据范围）② 资料清单（BMI088 datasheet · CtrBoard-H7 原理图）③ 合并方案（LCD 基底 + IMU 驱动）④ 验收标准。<span class="draft">DRAFT · 可继续修改</span></div>
+          <div class="msg-user">可以了，开始执行。</div>
+          <div class="msg-system">✔ 验收合同已冻结 · 任务已派发至五个角色</div>
+        </div>
+      </div>
+    </div>
+    <div class="feat-grid">
+      <div class="feat reveal">
+        <div class="f-num">01</div>
+        <h3>需求确认门</h3>
+        <p>先产出 <code class="inline">INTAKE_DRAFT</code> 工程草案供用户修改，回复确认后才冻结验收合同。<b style="color:var(--text)">合同未确认，编码角色不得放行</b>，从源头杜绝"理解偏差直接落码"。</p>
+      </div>
+      <div class="feat reveal">
+        <div class="f-num">02</div>
+        <h3>五角色工程分工</h3>
+        <p>Lead、Requirement、Research、Firmware、Verification 各司其职：不代替他人写实现，不代替验证判通过。决策边界写入角色规则，Manager 负责路由与汇总。</p>
+      </div>
+      <div class="feat reveal">
+        <div class="f-num">03</div>
+        <h3>受控补丁通道</h3>
+        <p>Firmware 默认不直接修改源码，而是提交统一 diff 提案；受控工具复核路径白名单、HEAD、源码与补丁哈希一致后，凭人工审批令牌 <code class="inline">git apply --index</code> 落地。</p>
+      </div>
+      <div class="feat reveal">
+        <div class="f-num">04</div>
+        <h3>独立验证与证据归档</h3>
+        <p>Verification 基于实际 diff 与固定测试独立判定，结论分 <code class="inline">SUCCESS / WITH_NOTES / REVISION_NEEDED</code>；静态检查、构建、集成、硬件证据<b style="color:var(--text)">严格分层，绝不混报</b>。</p>
+      </div>
+      <div class="feat reveal">
+        <div class="f-num">05</div>
+        <h3>Worker 可靠性守护</h3>
+        <p>Manager 每 10 分钟巡检：心跳检测、链路诊断与受控恢复脚本实时确认消息通路——已真实修复过"容器 Running 但消息链路失效"的故障。</p>
+      </div>
+      <div class="feat reveal">
+        <div class="f-num">06</div>
+        <h3>一键工程化脚本</h3>
+        <p>环境检查、依赖安装、一键启动、三层验收、交付打包全链路 PowerShell 化，交付包自动附带 SHA-256，评审与复现开箱即用。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 架构 ============ -->
+<section class="section" id="architecture">
+  <div class="wrap">
+    <div class="kicker reveal">Architecture</div>
+    <h2 class="title reveal">系统架构</h2>
+    <p class="sub reveal">Matrix 保存可读协作轨迹，MinIO 保存结构化任务状态与证据，MCP 只开放白名单能力，Windows 工程仍是源码事实源。</p>
+
+    <div class="arch-box reveal">
+      <svg viewBox="0 0 1060 668" xmlns="http://www.w3.org/2000/svg" font-family="inherit">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#4a5878"/>
+          </marker>
+        </defs>
+        <style>
+          .node { fill:#131926; stroke:#2a3550; stroke-width:1.2; rx:12; }
+          .node-t { fill:#e8ecf3; font-size:15px; font-weight:600; }
+          .node-s { fill:#8b95a8; font-size:11.5px; }
+          .edge { stroke:#4a5878; stroke-width:1.4; fill:none; marker-end:url(#arr); }
+          .edge-lbl { fill:#7d889c; font-size:11.5px; }
+          .role  { rx:10; stroke-width:1.3; }
+          .role-t { font-size:13.5px; font-weight:600; }
+          .role-s { font-size:10.5px; }
+        </style>
+
+        <!-- 连线 -->
+        <path id="edge-user-manager" class="edge" d="M530 82 L530 122"/>
+        <path id="edge-manager-control" class="edge" d="M670 163 L730 163" marker-start="url(#arr)"/>
+        <path id="edge-manager-room" class="edge" d="M530 204 L530 248"/>
+        <path class="edge" d="M252 404 L252 448" marker-start="url(#arr)"/>
+        <path class="edge" d="M530 404 L530 448" marker-start="url(#arr)"/>
+        <path class="edge" d="M810 404 L810 448" marker-start="url(#arr)"/>
+        <path class="edge" d="M810 530 L810 566"/>
+
+        <!-- 连线标签 -->
+        <text class="edge-lbl" x="515" y="105" text-anchor="end" font-weight="600" fill="#9fc0ff">自然语言目标 · 确认执行</text>
+        <text class="edge-lbl" x="548" y="232">创建项目房间，拉入全部角色</text>
+        <text class="edge-lbl" x="265" y="432">任务状态 · 证据归档</text>
+        <text class="edge-lbl" x="543" y="432">Research 检索 → 资料</text>
+        <text class="edge-lbl" x="823" y="432">L/Q/F/V 操作 → 工程</text>
+        <text class="edge-lbl" x="833" y="600" text-anchor="end" fill="#9fc0ff" font-weight="600">落地编译产物</text>
+
+        <!-- 用户 -->
+        <rect class="node" x="405" y="26" width="250" height="56" rx="12"/>
+        <text class="node-t" x="530" y="50" text-anchor="middle">👤 用户 / Element Web</text>
+        <text class="node-s" x="530" y="69" text-anchor="middle">描述目标 · 修改草案 · 确认执行</text>
+
+        <!-- Manager -->
+        <rect id="arch-manager" class="node" x="390" y="122" width="280" height="82" rx="12"/>
+        <text class="node-t" x="530" y="152" text-anchor="middle">HiClaw Manager</text>
+        <text class="node-s" x="530" y="172" text-anchor="middle">项目房间 · 成员 · 任务路由</text>
+        <text class="node-s" x="530" y="189" text-anchor="middle">状态汇总 · 非第六个实现角色</text>
+
+        <!-- Worker Control -->
+        <rect id="arch-worker-control" class="node" x="730" y="122" width="260" height="82" rx="12"/>
+        <text class="node-t" x="860" y="152" text-anchor="middle">Worker Control</text>
+        <text class="node-s" x="860" y="172" text-anchor="middle">即时回执 · 链路诊断</text>
+        <text class="node-s" x="860" y="189" text-anchor="middle">30 秒超时 · 受控恢复</text>
+
+        <!-- Matrix 房间 -->
+        <rect x="130" y="248" width="800" height="156" rx="14" fill="rgba(91,140,255,.045)" stroke="#2f3d5c" stroke-width="1.2" stroke-dasharray="5 4"/>
+        <text x="150" y="276" fill="#9fb6e8" font-size="13px" font-weight="600">Matrix 项目房间（每个项目独立）</text>
+        <text x="910" y="276" fill="#6b7688" font-size="11.5px" text-anchor="end">可读协作轨迹</text>
+
+        <rect class="role" x="150" y="292" width="136" height="76" rx="10" fill="rgba(91,140,255,.1)" stroke="#5b8cff"/>
+        <text class="role-t" x="218" y="322" text-anchor="middle" fill="#8fb0ff">Lead</text>
+        <text class="role-s" x="218" y="341" text-anchor="middle" fill="#8b95a8">任务拆解</text>
+        <text class="role-s" x="218" y="356" text-anchor="middle" fill="#8b95a8">交接 · 汇总</text>
+
+        <rect class="role" x="306" y="292" width="136" height="76" rx="10" fill="rgba(167,139,250,.1)" stroke="#a78bfa"/>
+        <text class="role-t" x="374" y="322" text-anchor="middle" fill="#c4b2ff">Requirement</text>
+        <text class="role-s" x="374" y="341" text-anchor="middle" fill="#8b95a8">需求澄清</text>
+        <text class="role-s" x="374" y="356" text-anchor="middle" fill="#8b95a8">冻结验收合同</text>
+
+        <rect class="role" x="462" y="292" width="136" height="76" rx="10" fill="rgba(34,211,238,.1)" stroke="#22d3ee"/>
+        <text class="role-t" x="530" y="322" text-anchor="middle" fill="#7fe3f5">Research</text>
+        <text class="role-s" x="530" y="341" text-anchor="middle" fill="#8b95a8">资料检索</text>
+        <text class="role-s" x="530" y="356" text-anchor="middle" fill="#8b95a8">事实卡片沉淀</text>
+
+        <rect class="role" x="618" y="292" width="136" height="76" rx="10" fill="rgba(251,191,36,.1)" stroke="#fbbf24"/>
+        <text class="role-t" x="686" y="322" text-anchor="middle" fill="#ffd670">Firmware</text>
+        <text class="role-s" x="686" y="341" text-anchor="middle" fill="#8b95a8">模块化设计</text>
+        <text class="role-s" x="686" y="356" text-anchor="middle" fill="#8b95a8">统一 diff 提案</text>
+
+        <rect class="role" x="774" y="292" width="136" height="76" rx="10" fill="rgba(52,211,153,.1)" stroke="#34d399"/>
+        <text class="role-t" x="842" y="322" text-anchor="middle" fill="#7ce8bd">Verification</text>
+        <text class="role-s" x="842" y="341" text-anchor="middle" fill="#8b95a8">独立验证</text>
+        <text class="role-s" x="842" y="356" text-anchor="middle" fill="#8b95a8">证据链判定</text>
+
+        <!-- 底层 -->
+        <rect class="node" x="132" y="448" width="240" height="82" rx="12"/>
+        <text class="node-t" x="252" y="480" text-anchor="middle">📦 MinIO</text>
+        <text class="node-s" x="252" y="500" text-anchor="middle">共享状态 · 合同 · 哈希</text>
+        <text class="node-s" x="252" y="516" text-anchor="middle">结构化证据归档</text>
+
+        <rect class="node" x="410" y="448" width="240" height="82" rx="12"/>
+        <text class="node-t" x="530" y="480" text-anchor="middle">🌐 Research Web MCP</text>
+        <text class="node-s" x="530" y="500" text-anchor="middle">公开资料白名单</text>
+        <text class="node-s" x="530" y="516" text-anchor="middle">只允许指定 HTTPS 来源</text>
+
+        <rect class="node" x="690" y="448" width="240" height="82" rx="12"/>
+        <text class="node-t" x="810" y="480" text-anchor="middle">🔧 STM32 MCP</text>
+        <text class="node-s" x="810" y="500" text-anchor="middle">工程 / Git / Keil / 测试</text>
+        <text class="node-s" x="810" y="516" text-anchor="middle">无 Shell / push / 烧录权限</text>
+
+        <rect class="node" x="690" y="566" width="240" height="76" rx="12"/>
+        <text class="node-t" x="810" y="596" text-anchor="middle">💻 Windows 固件工程</text>
+        <text class="node-s" x="810" y="616" text-anchor="middle">Keil MDK · 源码事实源</text>
+        <text class="node-s" x="810" y="631" text-anchor="middle">补丁复核后才落地</text>
+      </svg>
+    </div>
+
+    <div class="principles">
+      <div class="principle reveal"><b>Matrix = 协作轨迹</b><span>每条消息、每次派工与回执全程可读、可审计、可回放。</span></div>
+      <div class="principle reveal"><b>MinIO = 状态与证据</b><span>合同、快照、diff、测试结果与哈希结构化归档，随时可定位。</span></div>
+      <div class="principle reveal"><b>MCP = 白名单能力</b><span>工具桥只开放登记过的能力，任意 Shell、push、烧录默认关闭。</span></div>
+      <div class="principle reveal"><b>工程 = 源码事实源</b><span>Windows 固件工程始终是唯一事实源，AI 只通过受控补丁触达。</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 方案迁移 ============ -->
+<section class="section" id="migration">
+  <div class="wrap">
+    <div class="kicker reveal">Portability</div>
+    <h2 class="title reveal">方案迁移：一套基座，两种硬件配置</h2>
+    <p class="sub reveal">
+      "换一块开发板、换一套外设，要改多少？"我们用两次真实落地回答：<b>基座零改动</b>——从 STM32H723 轮控安全闭环（初赛）到
+      CtrBoard-H7 的 BMI088 六轴 IMU 显示系统（复赛），只重配场景层，角色协议、工具桥与验收流程原样复用。
+    </p>
+
+    <div class="platform-grid">
+      <div class="platform reveal">
+        <span class="pf-badge pf-ok">初赛 · 已验证</span>
+        <span class="pf-chip">PLATFORM A</span>
+        <h3>轮控安全闭环</h3>
+        <div class="pf-mcu">STM32H723ZGT6 · Keil Target UM10550</div>
+        <ul>
+          <li><b>场景：</b>PC 虚拟手柄 → USB CDC(COM3) → STM32 混控 → TFT 虚拟显示，验证控制链路与安全机制。</li>
+          <li><b>已通过：</b>CTRL-001 虚拟控制链路（throttle=400 / steering=100 → left=500 / right=300 混控正确）。</li>
+          <li><b>基线留题：</b>FS / ESTOP / REC-001 在 baseline 上真实失败，测试预期不可篡改，冻结为 Agent 的验收任务。</li>
+          <li><b>构建证据：</b>2026-08-16 真实 Keil 构建 0 Error / 0 Warning，HEX SHA-256 与已烧录固件一致。</li>
+        </ul>
+      </div>
+      <div class="platform reveal">
+        <span class="pf-badge pf-cur">复赛 · 交付</span>
+        <span class="pf-chip">PLATFORM B</span>
+        <h3>IMU 显示系统（显示基底 + 传感驱动合并）</h3>
+        <div class="pf-mcu">STM32H723ZGT6 · CtrBoard-H7（MC02 研发板）</div>
+        <ul>
+          <li><b>场景：</b>以 CtrBoard-H7_LCD 显示工程为基底，合并 BMI088 六轴 IMU 驱动，读取三轴加速度与三轴角速度，实时显示在 ST7779V2 TFT 上。</li>
+          <li><b>合并核验：</b>stm32-keil-project-merge 真实运行：39 FilePath / 8 IncludePath 全解析、重复定义 NONE、hspi2 外设链 OK。</li>
+          <li><b>独立验证：</b>keil-merge-static-verify 四项检查（引脚冲突 / 路径完整 / 初始化与刷新流程 / DMA 与中断），输出 SUCCESS_WITH_NOTES 分级结论。</li>
+          <li><b>制品链：</b>验收合同 + 调研报告 + interface-report.md 引脚对照表（含 SPI / DMA / EXTI 分配）+ plan.md / result.md 全量留档。</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="mig-grid">
+      <div class="mig-card reveal">
+        <h3>迁移方式</h3>
+        <p>基座（Manager、五角色协议、补丁通道、双 MCP 桥、验收脚本）<b style="color:var(--text)">零改动</b>。换平台 = 换"场景层"三件套：</p>
+        <ul class="use-list">
+          <li><b>agent_profile</b>：验收合同、角色规则、来源白名单、哈希与补丁策略</li>
+          <li><b>场景 Skill</b>：按工程形态注册合并 / 验证类 Skill</li>
+          <li><b>MCP 白名单</b>：工程路径、Target 与固定测试入口</li>
+        </ul>
+      </div>
+      <div class="mig-card reveal">
+        <h3>迁移成本</h3>
+        <p>复用的部分远大于新增的部分：</p>
+        <ul class="use-list">
+          <li>18 个 Manager 编排 Skill、五角色协作协议</li>
+          <li>补丁白名单通道、双 MCP 工具桥</li>
+          <li>Static / Live / Full 三层验收与打包脚本</li>
+        </ul>
+        <ul class="use-list li-plus">
+          <li>仅新增 2 个场景 Skill：stm32-keil-project-merge、keil-merge-static-verify</li>
+          <li>仅新增 1 份工程 Profile 配置</li>
+        </ul>
+      </div>
+      <div class="mig-card reveal">
+        <h3>设计边界（安全优先）</h3>
+        <p>以下边界全部是<b style="color:var(--text)">主动的安全设计</b>，而非能力未及——防护先于功能，是我们的一贯取舍：</p>
+        <ul class="use-list li-limit">
+          <li><b>硬件零风险：</b>不连接实车、不向动力 / RS485 链路写命令，物理隔离危险源。</li>
+          <li><b>高危必人工：</b>烧录、COM 口、Git 推送一律人工审批——AI 无权触碰硬件与远端。</li>
+          <li><b>验证分层：</b>静态检查与固定黑盒测试先行，硬件复测凭人工授权执行，证据分层不混报。</li>
+          <li><b>聚焦可信链路：</b>当前聚焦 Keil MDK-ARM 工程 + Windows 主机 + Docker，保证构建证据真实可控。</li>
+          <li><b>按设计可扩展：</b>IAR / GCC 等工具链通过扩展 MCP 白名单与 Skill 接入，无需改动基座。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 角色与技能对照 ============ -->
+<section class="section" id="roles">
+  <div class="wrap">
+    <div class="kicker reveal">Agents &amp; Skills Mapping</div>
+    <h2 class="title reveal">Agent × Skill × 制品对照</h2>
+    <p class="sub reveal">方案、Skill 清单与实际制品使用同一套名称，评审可以按名称逐项互查。</p>
+
+    <div class="namebar reveal">
+      <b>命名统一规则：</b>角色名 = Matrix 房间成员名 = Skill 调用主体；工具与工程类 Skill 统一 <b><code class="inline">stm32-*</code> 前缀</b>；
+      任务编号（如 <b><code class="inline">MCUFORGE-FS-002</code></b>、<b><code class="inline">task-20260831-174100</code></b>）贯穿合同 → 派工 → 执行 → 验证 → 证据全链路。
+      下表中每个 Skill 名称都能在仓库 <code class="inline">skill/</code> 清单与 <code class="inline">skill-registry.json</code> 中检索到同名条目。
+    </div>
+
+    <table class="map-table">
+      <thead><tr><th>Agent</th><th>调用的 Skill（统一名称）</th><th>关键制品</th><th>状态</th></tr></thead>
+      <tbody><tr><td><span class="role-name"><span class="role-dot" style="background:#5b8cff"></span><b>Lead</b></span></td><td><span class="skill-tag">find-skill</span><span class="skill-tag">file-sync</span><span class="skill-tag">task-progress</span><span class="skill-tag">gt-delegation</span></td><td><span class="art-tag">INTAKE_DRAFT 工程草案 · 任务卡 · [PROGRESS] 阶段汇总</span></td><td><span class="badge badge-ok">真实运行</span></td></tr><tr><td><span class="role-name"><span class="role-dot" style="background:#a78bfa"></span><b>Requirement</b></span></td><td><span class="skill-tag">requirements-contract</span>（由角色规则 + Manager 编排承载）</td><td><span class="art-tag">requirements.md + spec.md 验收合同（未确认不得编码）</span></td><td><span class="badge badge-ok">真实运行</span></td></tr><tr><td><span class="role-name"><span class="role-dot" style="background:#22d3ee"></span><b>Research</b></span></td><td><span class="skill-tag">component-source-research</span> + Research Web MCP（白名单来源）</td><td><span class="art-tag">事实卡片（版本 / 来源 / 许可证 / 置信度）· interface-report.md</span></td><td><span class="badge badge-ok">真实运行</span></td></tr><tr><td><span class="role-name"><span class="role-dot" style="background:#fbbf24"></span><b>Firmware</b></span></td><td><span class="skill-tag">stm32-keil-project-merge <span class="v">v1.0.0</span></span><span class="skill-tag">stm32-keil-build</span></td><td><span class="art-tag">统一 diff 提案 · 构建摘要（0 Error / 0 Warning + HEX SHA-256）</span></td><td><span class="badge badge-ok">已固化</span></td></tr><tr><td><span class="role-name"><span class="role-dot" style="background:#34d399"></span><b>Verification</b></span></td><td><span class="skill-tag">keil-merge-static-verify <span class="v">v1.2.0</span></span><span class="skill-tag">stm32-fixed-hardware-test</span><span class="skill-tag">stm32-evidence-audit</span></td><td><span class="art-tag">分级结论（SUCCESS / WITH_NOTES / REVISION_NEEDED）· 验证报告 · 证据索引</span></td><td><span class="badge badge-ok">已固化</span></td></tr><tr><td><span class="role-name"><span class="role-dot" style="background:#94a3b8"></span><b>Manager</b></span></td><td><span class="skill-tag">worker-reliability <span class="v">v1.3.0</span></span><span class="skill-tag">worker-doctor</span><span class="skill-tag">recover-worker</span> + 18 个编排 Skill</td><td><span class="art-tag">心跳诊断 JSON · 受控恢复动作 · 项目房间与任务路由</span></td><td><span class="badge badge-ok">已固化</span></td></tr></tbody>
+    </table>  </div>
+</section>
+
+<!-- ============ 故障闭环 ============ -->
+<section class="section" id="loop">
+  <div class="wrap">
+    <div class="kicker reveal">Failure Loop Drill</div>
+    <h2 class="title reveal">真实故障闭环演练</h2>
+    <p class="sub reveal">从一个真实失败基线出发，完整走过"派发 → 修复 → 审批 → 编译 → 烧录 → 复测"，并把异常分支纳入设计而非事后补救。</p>
+
+    <div class="loop-scene reveal">
+      <span class="task-id">MCUFORGE-FS-002</span> · 断链清零 / 急停锁定 / 三帧中位恢复 ——
+      从 <code class="inline">baseline-no-failsafe</code> 出发：FS / ESTOP / REC-001 在基线上真实失败，测试预期不可篡改，
+      由 AgentTeams 按验收合同补齐安全机制。每一步的任务状态、审批记录与证据文件均可按任务编号回查。
+    </div>
+
+    <div class="pipe">
+      <div class="pipe-line"></div>
+      <div class="pipe-steps">
+        <div class="pipe-step reveal"><div class="pipe-dot">01</div><b>任务派发</b><span>合同冻结后 Manager 派发 FS-002，任务卡绑定验收标准与固定测试基线</span></div>
+        <div class="pipe-step reveal"><div class="pipe-dot">02</div><b>代码修复</b><span>Firmware 按合同实现断链超时清零、急停锁定、三帧中位恢复，产出统一 diff</span></div>
+        <div class="pipe-step reveal"><div class="pipe-dot">03</div><b>人工审批</b><span>补丁通道校验白名单 + 哈希，开发者凭审批令牌放行（git apply --index）</span></div>
+        <div class="pipe-step reveal"><div class="pipe-dot">04</div><b>真实编译</b><span>stm32-keil-build 调用 UV4 真实构建，产出 0 Error / 0 Warning 与 HEX 哈希</span></div>
+        <div class="pipe-step reveal"><div class="pipe-dot">05</div><b>授权烧录</b><span>烧录动作单独二次审批，绑定 COM 口授权与操作审计记录</span></div>
+        <div class="pipe-step reveal"><div class="pipe-dot">06</div><b>硬件复测</b><span>stm32-fixed-hardware-test 执行固定黑盒测试，证据归档 MinIO</span></div>
+      </div>
+    </div>
+
+    <div class="incident-grid">
+      <div class="incident reveal"><div class="i-head"><span class="i-warn">🚫</span><h3>审批被拒绝</h3></div>
+        <div class="i-row"><span class="k k-fire">触发</span><p>补丁超出白名单路径、哈希不一致，或开发者拒绝放行。</p></div>
+          <div class="i-row"><span class="k k-do">处置</span><p>整包退回 Firmware 重新提案；拒绝理由与审批记录写入审计 Trace，不得绕行。</p></div>
+          <div class="i-row"><span class="k k-out">结果</span><p>修订后的 diff 再次进入审批队列，循环直至通过或终止。</p></div></div><div class="incident reveal"><div class="i-head"><span class="i-warn">🧨</span><h3>工具链失败</h3></div>
+        <div class="i-row"><span class="k k-fire">触发</span><p>UV4 构建非零退出、tool-bridge 心跳异常或构建环境损坏。</p></div>
+          <div class="i-row"><span class="k k-do">处置</span><p>状态采集立即拦截——构建失败禁止进入烧录；错误日志与哈希留证，工具桥恢复后原任务自动重派。</p></div>
+          <div class="i-row"><span class="k k-out">结果</span><p>错误证据驱动 Firmware 定向返工，而不是反复重跑昂贵全量测试。</p></div></div><div class="incident reveal"><div class="i-head"><span class="i-warn">📴</span><h3>任务重派</h3></div>
+        <div class="i-row"><span class="k k-fire">触发</span><p>Worker 容器 Running 但无任务回执——真实发生过（见下方运行实录）。</p></div>
+          <div class="i-row"><span class="k k-do">处置</span><p>worker-reliability 诊断消息投递链路，定位 HiClaw 显示与宿主机进程不一致；recover-worker 受控恢复。</p></div>
+          <div class="i-row"><span class="k k-out">结果</span><p>任务按 MinIO 中的状态续跑，上下文不丢、不重复派发已完成的阶段。</p></div></div></div>
+
+    <a class="demo-video reveal" href="https://www.bilibili.com/video/BV1vWtX6yEFZ/" target="_blank" rel="noopener">
+      <div class="demo-video-text">
+        <span class="v-tag">▶ END-TO-END DEMO · B 站</span>
+        <h3>看完整 <em>MCUFORGE-FS-002</em><br>端到端演练。</h3>
+        <p>从用户提出"补上断链 / 急停"安全需求开始，到 Manager 派工、Requirement 冻结合同、Research 给出事实卡、Firmware 改代码、Verification 跑硬件复测，再到异常分支的真实处置——配字幕与关键状态标注。</p>
+        <span class="bili-btn">
+          <svg viewBox="0 0 24 24"><path d="M17.813 4.653h.854c1.51.054 2.769.578 3.773 1.574 1.004.995 1.524 2.249 1.56 3.76v7.36c-.036 1.51-.556 2.769-1.56 3.773s-2.262 1.524-3.773 1.56H5.333c-1.51-.036-2.769-.556-3.773-1.56S.036 18.858 0 17.347v-7.36c.036-1.511.556-2.765 1.56-3.76 1.004-.996 2.262-1.52 3.773-1.574h.774l-1.174-1.12a1.234 1.234 0 0 1-.373-.906c0-.356.124-.658.373-.907l.027-.027c.267-.249.573-.373.92-.373.347 0 .653.124.92.373L9.653 4.44c.071.071.134.142.187.213h4.267a.836.836 0 0 1 .16-.213l2.853-2.747c.267-.249.573-.373.92-.373.347 0 .662.151.929.4.267.249.391.551.391.907 0 .355-.124.657-.373.906l-1.173 1.12zM5.333 7.24c-.746.018-1.373.276-1.88.773-.506.498-.769 1.13-.786 1.894v7.52c.017.764.28 1.395.786 1.893.507.498 1.134.756 1.88.773h13.334c.746-.017 1.373-.275 1.88-.773.506-.498.769-1.129.786-1.893v-7.52c-.017-.765-.28-1.396-.786-1.894-.507-.497-1.134-.755-1.88-.773H5.333zM8 11.107c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.25-.56.374-.933.374s-.684-.125-.933-.374a1.317 1.317 0 0 1-.4-.96V12.44c0-.373.129-.689.386-.947.258-.257.574-.386.947-.386zm8 0c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.25-.56.374-.933.374s-.684-.125-.933-.374a1.317 1.317 0 0 1-.4-.96V12.44c0-.373.129-.689.386-.947.258-.257.574-.386.947-.386z"/></svg>
+          在 B 站打开 · BV1vWtX6yEFZ
+        </span>
+        <span class="bili-meta">8 分钟 · 含字幕与关键节点标注</span>
+      </div>
+      <div class="demo-video-visual">
+        <div class="play"></div>
+        <div class="v-meta">
+          <span class="bili">▶ bilibili</span>
+          <span class="dur">MCUFORGE · DEMO</span>
+        </div>
+      </div>
+    </a>
+  </div>
+</section>
+
+<!-- ============ 工程化能力矩阵 ============ -->
+<section class="section" id="engineering">
+  <div class="wrap">
+    <div class="kicker reveal">Engineering Capabilities</div>
+    <h2 class="title reveal">工程化能力矩阵</h2>
+    <p class="sub reveal">对照评审要求逐项建设的八项工程能力。状态诚实标注：<span class="badge badge-ok">已验证</span> 表示有真实执行证据，<span class="badge badge-wip">复赛交付</span> 表示机制已就绪并在复赛周期内完成演练。</p>
+    <div class="eng-list">
+      <div class="eng reveal">
+        <div class="e-num">01</div>
+        <h3>编译 / 烧录工具状态采集</h3>
+        <p>tool-bridge 心跳与 UV4 构建状态实时采集；非零退出自动拦截后续环节并告警，构建产物绑定哈希。</p>
+        <span class="badge badge-ok">已验证</span>
+      </div>
+      <div class="eng reveal">
+        <div class="e-num">02</div>
+        <h3>设备操作审计</h3>
+        <p>烧录 / COM 口操作绑定审批令牌与操作者身份；补丁、构建、测试的哈希与时间线全程留痕可回放。</p>
+        <span class="badge badge-ok">已验证</span>
+      </div>
+      <div class="eng reveal">
+        <div class="e-num">03</div>
+        <h3>统一可观测</h3>
+        <p>[PROGRESS] 规范化阶段上报 + Matrix 协作轨迹 + MinIO 任务状态机 + Skill 调用 Trace，四种视角拼出同一事实。</p>
+        <span class="badge badge-ok">已验证</span>
+      </div>
+      <div class="eng reveal">
+        <div class="e-num">04</div>
+        <h3>异常恢复</h3>
+        <p>worker-reliability v1.3.0 链路诊断 + recover-worker 受控恢复，已真实修复"容器 Running 但链路失效"故障。</p>
+        <span class="badge badge-ok">已验证</span>
+      </div>
+      <div class="eng reveal">
+        <div class="e-num">05</div>
+        <h3>版本发布</h3>
+        <p>SemVer + skill-registry.json 治理；Build-MCUForgePackage.ps1 从 Git HEAD 打包干净 ZIP 并输出 SHA-256。</p>
+        <span class="badge badge-ok">已验证</span>
+      </div>
+      <div class="eng reveal">
+        <div class="e-num">06</div>
+        <h3>升级回滚</h3>
+        <p>Registry 内置兼容声明与回滚策略；按版本定位结果产物，复赛周期内完成一次真实回滚演练。</p>
+        <span class="badge badge-wip">复赛交付</span>
+      </div>
+      <div class="eng reveal">
+        <div class="e-num">07</div>
+        <h3>设备运维</h3>
+        <p>固定测试哈希基线 + Check-MCUForgeEnvironment 只读环境体检；健康看板与批量巡检规划中。</p>
+        <span class="badge badge-wip">复赛交付</span>
+      </div>
+      <div class="eng reveal">
+        <div class="e-num">08</div>
+        <h3>灾备方案</h3>
+        <p>Install / Start 一键重建 Docker 与 HiClaw 运行态；密钥仅存本地安全存储；证据 MinIO + 仓库双归档。</p>
+        <span class="badge badge-wip">复赛交付</span>
+      </div>
+    </div>
+    <div class="eng-foot reveal">
+      工程化的目标：<b>异常有预案、操作有审计、版本可回滚、证据可复核</b>——让"通过"永远有证据层级可依。
+    </div>
+  </div>
+</section>
+
+<!-- ============ 运行实录 ============ -->
+<section class="section" id="workflow">
+  <div class="wrap">
+    <div class="kicker reveal">Workflow in Action</div>
+    <h2 class="title reveal">运行实录</h2>
+    <p class="sub reveal">以下截图来自真实运行记录——H7 IMU 屏幕显示项目从需求到固件交付的全过程，以及一次真实的链路故障处置。</p>
+
+    <div class="story-row reveal">
+      <div class="story-text">
+        <span class="story-tag">01 · 发送需求</span>
+        <h3>对话驱动，<br>五角色各就各位。</h3>
+        <p>用户一句话描述目标，Manager 创建独立项目房间、拉齐五个角色，并按 Phase 拆解任务分派给 Requirement / Research。整个过程在 Element Web 公开可见，<b>任何时刻都能审计</b>。</p>
+      </div>
+      <div class="story-shot focus-evidence focus-top-left"><img src="../demo截图/发送需求.png" alt="Manager 接收自然语言需求并创建项目房间" loading="lazy"></div>
+    </div>
+
+    <div class="story-row flip reveal">
+      <div class="story-text">
+        <span class="story-tag">02 · 任务派发</span>
+        <h3>状态透明，<br><em>阶段可回放。</em></h3>
+        <p>Requirement 角色完成 file-sync 后回执 <code class="inline">FILE_SYNC_OK</code>，每个任务绑定 CONTRACT 阶段状态；<b>[PROGRESS] 规范化上报</b>让用户随时区分 Agent 在工作、等待还是卡死。</p>
+      </div>
+      <div class="story-shot focus-evidence focus-left-center"><img src="../demo截图/requirement回复.png" alt="Requirement 角色的任务回执与阶段流转" loading="lazy"></div>
+    </div>
+
+    <div class="story-row reveal">
+      <div class="story-text">
+        <span class="story-tag">03 · 固件执行</span>
+        <h3>按合同实现，<br>产出<em>统一 diff</em>。</h3>
+        <p>h7-firmware 按冻结合同执行工程合并：外设初始化、时钟树、DMA / SPI 配置逐项落地。<b>不直接写主机源码</b>，而是产出统一 diff 提案由受控通道复核后再落地。</p>
+      </div>
+      <div class="story-shot focus-evidence focus-firmware"><img src="assets/demo-firmware.png" alt="h7-firmware Worker 执行固件合并任务" loading="lazy"></div>
+    </div>
+
+    <div class="story-row flip reveal">
+      <div class="story-text">
+        <span class="story-tag">04 · 独立验证</span>
+        <h3>四项检查 + <em>分级结论</em>。</h3>
+        <p>h7-verify 独立核查：① SPI / GPIO 引脚冲突 ② 工程与头文件路径完整 ③ BMI088 初始化与刷新流程 ④ DMA 与中断重复遗漏，输出 <b>SUCCESS_WITH_NOTES</b> 分级结论，证据归档 MinIO。</p>
+      </div>
+      <div class="story-shot focus-evidence focus-verification"><img src="assets/demo-verify.png" alt="h7-verify 独立验证输出分级结论" loading="lazy"></div>
+    </div>
+
+    <div class="story-wide reveal">
+      <div class="story-wide-head"><span class="story-tag">05 · 异常处理实录</span></div>
+      <h3>Worker 无回执的<em>自主诊断与恢复</em>。</h3>
+      <p>Manager 每 10 分钟巡检发现：Worker 容器 Running 但超过 80 分钟无任务回执，单独私聊却又有回复。自主诊断定位为 HiClaw 消息投递链路缺可靠性机制（显示 running 但宿主机进程已崩溃、存在 60 秒异常重启临界），随后重新发送任务并恢复正常——这就是"任务重派"分支的真实来源。</p>
+      <div class="story-shot focus-evidence focus-bottom-left"><img src="../demo截图/worker无回应.png" alt="Manager 对 Worker 无回执的自主诊断与恢复" loading="lazy"></div>
+    </div>
+
+    <div class="story-wide reveal">
+      <div class="story-wide-head"><span class="story-tag">06 · Skill 制品落盘</span></div>
+      <h3>与对照表<em>同名可互查</em>。</h3>
+      <p>Worker 侧 Skill 真实目录：find-skills / file-sync / task-progress / stm32-keil-project-merge / embedded-verification / git-delegation / mcporter 等，与上方"Agent × Skill × 制品对照表"同名互查——评审可按名称直接定位到落盘实现。</p>
+      <div class="story-shot focus-evidence focus-top-left"><img src="assets/skill-products.png" alt="Worker 侧 Skill 真实制品目录" loading="lazy"></div>
+    </div>
+
+    <div class="motto-wrap reveal"><div class="motto">MCUForge 的目标不是让 AI 多写代码，<br>而是让 AI 对 MCU 开发结果<span class="hl">负责</span>。</div></div>
+  </div>
+</section>
+
+<!-- ============ 安全 + 快速开始 ============ -->
+<section class="section" id="security">
+  <div class="wrap">
+    <div class="kicker reveal">Security & Quick Start</div>
+    <h2 class="title reveal">安全边界与快速开始</h2>
+    <p class="sub reveal">默认最小权限：所有"通过"结论必须说明证据层级，静态检查、构建、集成、硬件测试绝不混为一谈。</p>
+    <div class="duo">
+      <div class="sec-list">
+        <div class="sec-item reveal"><span class="ok">✓</span><div><b>默认不直接修改源码</b><span>补丁提案 → 受控复核 + 人工审批后应用，路径白名单 + HEAD + 哈希三重一致。</span></div></div>
+        <div class="sec-item reveal"><span class="ok">✓</span><div><b>高危操作默认关闭</b><span>不开放任意 Shell、Git push、烧录与 COM 口工具。</span></div></div>
+        <div class="sec-item reveal"><span class="ok">✓</span><div><b>授权粒度明确</b><span><code class="inline">AUTO_LOCAL</code> 仅限本地补丁应用、构建与固定测试，不等于烧录或推送授权。</span></div></div>
+        <div class="sec-item reveal"><span class="ok">✓</span><div><b>密钥不出本地</b><span>只存于使用者自己的 hiclaw-manager.env 或安全存储，不入库、不进房间。</span></div></div>
+        <div class="sec-item reveal"><span class="ok">✓</span><div><b>证据层级强制声明</b><span>所有"通过"必须说明层级，缺证据不得写成通过。</span></div></div>
+      </div>
+      <div class="reveal">
+        <div class="terminal">
+          <div class="bar"><i class="r"></i><i class="y"></i><i class="g"></i><em>PowerShell 7 — 5 分钟启动</em></div>
+          <pre><span class="cmt"># 1. 克隆仓库</span>
+<span class="cmd">git clone</span> <span class="arg">https://github.com/Asuka-WILLE/MCUForge.git</span>
+<span class="cmd">Set-Location</span> <span class="arg">.\MCUForge</span>
+
+<span class="cmt"># 2. 环境检查（只读，不修改运行环境）</span>
+<span class="cmd">pwsh</span> <span class="arg">-File .\Check-MCUForgeEnvironment.ps1</span>
+
+<span class="cmt"># 3. 安装依赖并一键启动</span>
+<span class="cmd">pwsh</span> <span class="arg">-File .\Install-MCUForge.ps1</span>
+<span class="cmd">pwsh</span> <span class="arg">-File .\Start-MCUForge.ps1</span>
+
+<span class="cmt"># 4. 只读运行态验收（Static / Live / Full）</span>
+<span class="cmd">pwsh</span> <span class="arg">-File .\Test-MCUForge.ps1 -Mode Live</span></pre>
+        </div>
+        <p class="prereq"><b>前提：</b>Windows 10/11 · PowerShell 7 · Git · Docker Desktop · Node.js 20+，并已完成 HiClaw 部署与模型配置。详细步骤与排障见仓库 <code class="inline">docs/OPERATIONS.md</code>。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 总结页（上手只要 5 分钟） ============ -->
+<section class="section" id="summary" style="padding-top:60px">
+  <div class="wrap">
+    <div class="summary-card reveal">
+      <div class="kicker">Get Started in 5 Minutes</div>
+      <h3>上手 MCUForge，<em>比想象中简单</em>。</h3>
+      <p>前置只装好 PowerShell 7、Docker Desktop 与 Node.js 20+，克隆仓库、运行一条安装脚本，浏览器打开 Element Web 就能开聊。整套五角色协作、安全补丁通道、状态可观测与版本回滚，<b style="color:var(--text)">开箱即用</b>——把判断和创造力留给自己，把重复繁琐的工程流程交给 Agent。</p>
+      <div class="summary-steps">
+        <div class="summary-step">
+          <div class="ss-n">STEP 01</div>
+          <b>克隆仓库</b>
+          <span>把项目源码拿到本地</span>
+          <code>git clone https://github.com/Asuka-WILLE/MCUForge.git</code>
+        </div>
+        <div class="summary-step">
+          <div class="ss-n">STEP 02</div>
+          <b>一键安装</b>
+          <span>安装 Node Bridge 依赖并构建</span>
+          <code>pwsh -File .\Install-MCUForge.ps1</code>
+        </div>
+        <div class="summary-step">
+          <div class="ss-n">STEP 03</div>
+          <b>一键启动</b>
+          <span>恢复 Docker / HiClaw、注册 MCP、同步 Skills</span>
+          <code>pwsh -File .\Start-MCUForge.ps1</code>
+        </div>
+        <div class="summary-step">
+          <div class="ss-n">STEP 04</div>
+          <b>开聊开发</b>
+          <span>浏览器打开 Element Web，对话驱动开发</span>
+          <code>pwsh -File .\Test-MCUForge.ps1 -Mode Live</code>
+        </div>
+      </div>
+      <div class="summary-actions">
+        <a class="bili-btn" href="https://github.com/Asuka-WILLE/MCUForge" target="_blank" rel="noopener">
+          <svg viewBox="0 0 16 16" width="20" height="20"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub 仓库
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Footer ============ -->
+<footer>
+  <div class="wrap foot-inner">
+    <div class="foot-left">
+      <div>
+        <b>MCUForge</b>
+        <div style="color:var(--text-3); font-size:12.5px">面向单片机研发的多 Agent 工程协作基座</div>
+      </div>
+    </div>
+    <div class="foot-meta">
+      世界人工智能开源大赛 · Agent Infra 新智基座赛道 参赛作品<br>
+      <a href="https://github.com/Asuka-WILLE/MCUForge" target="_blank" rel="noopener">github.com/Asuka-WILLE/MCUForge</a> · Apache License 2.0
+    </div>
+  </div>
+</footer>
+
+
+<!-- ============ Lightbox 放大预览 ============ -->
+<div id="lightbox" class="lightbox" role="dialog" aria-modal="true">
+  <button class="lightbox-close" id="lightbox-close" aria-label="关闭">×</button>
+  <img id="lightbox-img" alt="截图预览">
+</div>
+
+<script>
+  // Lightbox
+  const lb = document.getElementById('lightbox');
+  const lbImg = document.getElementById('lightbox-img');
+  const lbClose = document.getElementById('lightbox-close');
+  document.querySelectorAll('.story-shot img').forEach(img => {
+    img.addEventListener('click', () => {
+      lbImg.src = img.src; lbImg.alt = img.alt; lb.classList.add('open');
+    });
+  });
+  function closeLb() { lb.classList.remove('open'); lbImg.src = ''; }
+  lb.addEventListener('click', e => { if (e.target === lb) closeLb(); });
+  lbClose.addEventListener('click', closeLb);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && lb.classList.contains('open')) closeLb(); });
+
+  // 精简动画：仅一次性滚动淡入（带兜底，任何环境下内容都不会滞留在隐藏态）
+  if (new URLSearchParams(location.search).has('noanim')) {
+    document.documentElement.classList.add('no-anim');
+  }
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); }
+    }
+  }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+  setTimeout(() => document.querySelectorAll('.reveal:not(.visible)').forEach(el => el.classList.add('visible')), 2500);
+</script>
+</body>
+</html>
