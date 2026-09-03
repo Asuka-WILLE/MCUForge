@@ -9,18 +9,109 @@ MCUForge 基于 HiClaw/AgentTeams，把单片机开发拆成需求、资料、�
 - 一键环境检查、依赖安装、启动、验收与交付打包脚本；
 - 面向下一位维护者的完整中文接手说明。
 
-> 新维护者先读 [接手总手册](docs/HANDOFF.md)。比赛评审或复现人员可直接看下方“5 分钟启动”。
+> 新维护者先读 [接手总手册](docs/HANDOFF.md)。比赛评审或复现人员直接按下方「部署指南」操作即可。
 
-## 5 分钟启动
+## 部署指南（全新电脑 / 全新 HiClaw 环境）
 
-前提：Windows 10/11、PowerShell 7、Git、Docker Desktop、Node.js 20+，并已完成 HiClaw 部署和模型配置。
+**前置条件**：Windows 10/11、PowerShell 7（`pwsh`）、Git、Docker Desktop（已启动）、Node.js 20+，并且已按 [HiClaw 官方文档](https://github.com/agentscope-ai/HiClaw) 完成本机部署（`docker inspect -f '{{.State.Running}}' hiclaw-controller` 应输出 `true`）且已配置自己的模型 API Key。
+
+### 1. 获取代码
+
+```powershell
+git clone https://github.com/Asuka-WILLE/MCUForge.git
+Set-Location .\MCUForge
+```
+
+> 请部署到工作盘根目录（如 `C:\MCUForge`）的普通文件夹，**不要**放在 `C:\Windows\System32`。
+
+### 2. 准备 Worker 镜像（新机器必做，否则第 5 步报缺镜像）
+
+mcuforge 的五个 Worker 依赖两个本地镜像，它们不随 GitHub 分发，需在本机构建或离线导入：
+
+```text
+local/mcuforge-hiclaw-worker:policy-safe-20260902-v2   # HiClaw 官方 hiclaw-worker + 策略安全层
+local/mcuforge-worker-control:20260902                 # 内网 Worker 可靠性守护桥
+```
+
+**联网自动构建（推荐）**——构建源已提交在仓库内：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File `
+  .\agent_infra\hiclaw\worker-image-policy-safe\Build-MCUForgeWorkerImage.ps1
+```
+
+首次会自动拉取官方 `hiclaw-worker` 基础镜像（约 2–4 GB，阿里云中国区镜像）与 `python:3.12-alpine`；若你的 HiClaw 使用其它区域 registry，用 `-BaseImage <你的 hiclaw-worker 镜像>` 覆盖后重跑。
+
+**离线导入**（维护者用 `agent_infra/hiclaw/Export-MCUForgeImages.ps1` 导出交付 tar.gz 时）：
+
+```powershell
+docker load -i .\mcuforge-hiclaw-images.tar.gz
+docker images    # 应能看到上面两个 local/mcuforge-* 镜像
+```
+
+### 3. 环境检查
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\Check-MCUForgeEnvironment.ps1
+```
+
+- 全部"必需=是"项须通过；`MCUForge Worker 镜像 / Worker Control 镜像` 两项缺失时按 Fix 提示回到第 2 步。
+- HiClaw 环境文件必须指向**本机安装生成的** `hiclaw-manager.env`（不在默认位置时加 `-HiClawEnvPath <路径>`），不要复制他人的密钥文件。
+
+### 4. 安装依赖
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\Install-MCUForge.ps1
+```
+
+在两个 Bridge 目录执行锁定安装与 TypeScript 构建（首次需访问 npm registry）。
+
+### 5. 一键启动
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\Start-MCUForge.ps1
+```
+
+**首次启动会自动完成引导**：先注册 `mcuforge` Team/Worker（HiClaw 网关随之生成各 Worker 的访问凭据），再注册 STM32 / Research 两个 MCP Bridge，最后打开 Element Web——无需在网关控制台手工创建 consumer。已部署过的环境检测到 Team 就绪会自动跳过重复引导。
+
+### 6. 验收
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\Test-MCUForge.ps1 -Mode Live
+docker exec hiclaw-controller hiclaw get teams mcuforge          # Active
+docker exec hiclaw-controller hiclaw get workers --team mcuforge # 5 个 Worker ready
+Invoke-RestMethod http://127.0.0.1:8765/health                   # status ok（STM32 Bridge）
+Invoke-RestMethod http://127.0.0.1:8766/health                   # status ok（Research Bridge）
+```
+
+浏览器打开 `http://127.0.0.1:18088`（Element Web）即可用自然语言发起任务（见「怎么发起一次任务」）。
+
+### 日常启动 / 更新
+
+- 已成功部署过的机器再次启动只需执行第 5 步，不会丢失任何团队、任务或证据数据。
+- 代码更新：`git pull origin main` 后重新执行第 5 步即可。
+
+### 常见首启报错
+
+| 报错 | 原因 | 处理 |
+| --- | --- | --- |
+| 找不到 `worker-image-policy-safe\Build-…ps1` | 代码版本过旧 | `git pull origin main`（应 ≥ `3827c25`） |
+| `Worker image not found: local/mcuforge-hiclaw-worker:…` | 镜像未构建/未导入 | 回到第 2 步 |
+| `Required Higress consumers are missing: …` | 使用了不含首启修复的旧代码 | 更新代码后重跑第 5 步（会自动引导并等待生成，默认最多 120 秒） |
+| `找不到 HiClaw 环境文件 …/hiclaw-manager.env` | 路径不对或安装未完成 | 显式传 `-HiClawEnvPath`；详见排障手册 6.1 |
+
+详细步骤、预期输出与更多故障处理见 [运行与排障手册](docs/OPERATIONS.md) 与 [HiClaw 细节手册](agent_infra/hiclaw/README.md)。
+
+---
+
+## 快速启动（已就绪环境）
+
+前提：镜像已就绪、mcuforge Team 已部署过。日常只需：
 
 ```powershell
 git clone https://github.com/Asuka-WILLE/MCUForge.git
 Set-Location .\MCUForge
 
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\Check-MCUForgeEnvironment.ps1
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\Install-MCUForge.ps1
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\Start-MCUForge.ps1
 ```
 
@@ -36,7 +127,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Test-MCUForge.ps1 -Mode Live
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\Test-MCUForge.ps1 -Mode Full -CoordinationRounds 1
 ```
 
-`Full` 会向 Matrix 发送协调验收消息；普通代码检查使用默认的 `Static` 即可。详细步骤、预期输出和失败处理见 [运行与排障手册](docs/OPERATIONS.md)。
+`Full` 会向 Matrix 发送协调验收消息；普通代码检查使用默认的 `Static` 即可。
 
 ## 它解决什么问题
 
@@ -109,6 +200,7 @@ MCUForge/
 ├── examples/                        # 示例输入与预期输出
 ├── agent_infra/
 │   ├── hiclaw/                      # Team、项目房间、可靠性控制与验收脚本
+│   │   └── worker-image-policy-safe/  # Worker 镜像构建源 + Build/Export 脚本
 │   ├── tool_bridge/                 # STM32 MCP 与 Research MCP
 │   ├── skills/                      # 可复用工程 Skill
 │   └── patch_channel/               # 受控补丁登记与应用
