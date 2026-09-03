@@ -187,6 +187,21 @@ Manager 不是第六个实现角色。它负责项目房间、成员、任务路
 5. Leader 先返回 `INTAKE_DRAFT`；你可以继续修改。
 6. 只有回复“可以了，开始执行”或“确认执行”才会正式派工。
 
+> **⚠️ 群聊（项目房间）里必须 @ 提及，纯文本不会被处理。**
+>
+> 项目房间是多人群聊，每个 Agent 只响应**明确 @ 自己**（完整 Matrix mention）的消息。发言时必须点名：
+>
+> | 想让谁干活 | 群聊里这样 @ |
+> | --- | --- |
+> | Manager（路由 / 汇总 / 恢复） | `@manager` |
+> | Lead（拆解 / 交接） | `@mcuforge-lead` |
+> | Requirement（合同） | `@mcuforge-requirements` |
+> | Research（资料） | `@mcuforge-research` |
+> | Firmware（实现） | `@mcuforge-firmware` |
+> | Verification（验证） | `@mcuforge-verification` |
+>
+> 没有 @ 的纯文本只是普通聊天记录，任何 Agent 都不会响应；@ 错了人也不会有结果（例如在房间里 @ 一个不存在/未入房的名字）。私聊 Manager 不需要 @。
+
 示例输入见 [examples/requests/create-project.txt](examples/requests/create-project.txt) 和 [examples/requests/change-request.txt](examples/requests/change-request.txt)。
 
 ## 仓库结构
