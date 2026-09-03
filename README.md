@@ -15,6 +15,8 @@ MCUForge 基于 HiClaw/AgentTeams，把单片机开发拆成需求、资料、�
 
 **前置条件**：Windows 10/11、PowerShell 7（`pwsh`）、Git、Docker Desktop（已启动）、Node.js 20+，并且已按 [HiClaw 官方文档](https://github.com/agentscope-ai/HiClaw) 完成本机部署（`docker inspect -f '{{.State.Running}}' hiclaw-controller` 应输出 `true`）且已配置自己的模型 API Key。
 
+> **🧰 部署全程遇到任何报错，先查 [运行与排障手册](docs/OPERATIONS.md)**——安装、启动、验收、日志与常见故障（含下方"常见首启报错"表的完整版）都在其中；本页只覆盖最高频的几条。
+
 ### 1. 获取代码
 
 ```powershell
